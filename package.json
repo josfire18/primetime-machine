@@ -1,0 +1,20 @@
+{
+  "name": "primetime-machine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Retro live TV from your own library: era-correct channels and commercials, a cable-style guide.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test core/test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "guide": "node core/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.0"
+  }
+}

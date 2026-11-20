@@ -1,0 +1,110 @@
+// A folder of video files on this machine. Understands the usual library layouts:
+//
+//   Shows/Seinfeld (1989)/Season 4/Seinfeld - S04E11 - The Contest.mkv
+//   Shows/Seinfeld.S04E11.The.Contest.1992.mkv
+//   Movies/Night of the Living Dead (1968).mp4
+//   Ads/1994/Crystal Pepsi.mp4            (any folder named ads/commercials holds ads)
+//
+// Durations come from ffprobe; nothing is guessed from file size.
+
+import { execFile } from "node:child_process";
+import { readdir } from "node:fs/promises";
+import { basename, extname, join, relative, sep } from "node:path";
+import { promisify } from "node:util";
+
+import type { Kind, MediaItem, Source } from "../model.ts";
+
+const run = promisify(execFile);
+
+export const VIDEO_EXTS = new Set([".mp4", ".mkv", ".avi", ".mov", ".m4v", ".mpg", ".mpeg", ".ts", ".webm", ".wmv"]);
+const AD_DIRS = new Set(["ads", "commercials", "commercial", "adverts"]);
+const MOVIE_DIRS = new Set(["movies", "films"]);
+
+export interface Parsed {
+  kind: Kind;
+  title: string;
+  show?: string;
+  season?: number;
+  episode?: number;
+  year?: number;
+}
+
+const tidy = (s: string) => s.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim().replace(/^[-\s]+|[-\s]+$/g, "");
+const yearIn = (s: string): number | undefined => {
+  const m = s.match(/(?:^|[\s.(\[_-])((?:19|20)\d{2})(?:$|[\s.)\]_-])/);
+  return m ? Number(m[1]) : undefined;
+};
+
+/** What a path says about the file, relative to the source root. */
+export function parsePath(rel: string): Parsed {
+  const parts = rel.split(/[\\/]/);
+  const file = basename(rel, extname(rel));
+  const dirs = parts.slice(0, -1);
+  const lowerDirs = dirs.map((d) => d.toLowerCase());
+
+  if (lowerDirs.some((d) => AD_DIRS.has(d))) {
+    const yearDir = [...dirs].reverse().map(yearIn).find((y) => y !== undefined);
+    return { kind: "ad", title: tidy(file.replace(/\(?(19|20)\d{2}\)?/, "")) || tidy(file), year: yearIn(file) ?? yearDir };
+  }
+
+  const se = file.match(/^(.*?)[\s._-]*[Ss](\d{1,2})[\s._-]*[Ee](\d{1,3})(.*)$/);
+  if (se) {
+    const showDir = dirs.find((d) => !/^season\s*\d+$/i.test(d) && !["shows", "tv", "tv shows"].includes(d.toLowerCase()));
+    const fromFile = tidy(se[1]);
+    const show = tidy((fromFile || showDir || "").replace(/\((?:19|20)\d{2}\)/, "")) || undefined;
+    const rest = tidy(se[4].replace(/\(?(19|20)\d{2}\)?/, ""));
+    return {
+      kind: "episode",
+      show,
+      season: Number(se[2]),
+      episode: Number(se[3]),
+      title: rest || `${show ?? "Episode"} S${se[2]}E${se[3]}`,
+      year: yearIn(file) ?? [...dirs].reverse().map(yearIn).find((y) => y !== undefined),
+    };
+  }
+
+  const kind: Kind = lowerDirs.some((d) => MOVIE_DIRS.has(d)) ? "movie" : "episode";
+  return { kind, title: tidy(file.replace(/\(?(19|20)\d{2}\)?/, "")) || tidy(file), year: yearIn(file) ?? [...dirs].reverse().map(yearIn).find((y) => y !== undefined) };
+}
+
+/** Duration in seconds, from ffprobe. */
+export async function probeDuration(file: string): Promise<number> {
+  const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file]);
+  const d = Number(stdout.trim());
+  if (!Number.isFinite(d) || d <= 0) throw new Error(`no duration for ${file}`);
+  return d;
+}
+
+async function* walk(dir: string): AsyncGenerator<string> {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.name.startsWith(".")) continue;
+    const p = join(dir, e.name);
+    if (e.isDirectory()) yield* walk(p);
+    else if (e.isFile() && VIDEO_EXTS.has(extname(e.name).toLowerCase())) yield p;
+  }
+}
+
+export class LocalFolder implements Source {
+  readonly id: string;
+  readonly root: string;
+
+  constructor(root: string, id = `local:${root}`) {
+    this.root = root;
+    this.id = id;
+  }
+
+  async list(): Promise<MediaItem[]> {
+    const out: MediaItem[] = [];
+    for await (const file of walk(this.root)) {
+      const rel = relative(this.root, file).split(sep).join("/");
+      let durationSec: number;
+      try {
+        durationSec = await probeDuration(file);
+      } catch {
+        continue;                       // unreadable or not really video: skip it
+      }
+      out.push({ id: `${this.id}#${rel}`, source: this.id, locator: file, durationSec, ...parsePath(rel) });
+    }
+    return out.sort((a, b) => a.id.localeCompare(b.id));
+  }
+}
