@@ -6,6 +6,7 @@
 //   GET  /api/guide?from=ms&to=ms            every channel's programs in a window (<= 12 h)
 //   GET  /api/playout?channel=id&from=&to=   one channel's segments in a window (<= 6 h)
 //   GET  /media/<key>                        a media file (keys come from playout; no paths)
+//   GET  /api/breaks                         progress of commercial-break detection
 //   POST /api/rescan                         re-read the config and folders
 //   GET  /                                   the TV screen (ui/)
 //
@@ -50,11 +51,12 @@ class DayCache {
   }
 
   blocks(rule: ChannelRule, day: number): Block[] {
-    const key = `${this.lib.scannedAt}|${rule.id}|${day}`;
+    const key = `${this.lib.scannedAt}|${rule.id}|${day}|${this.lib.breaksKey(day)}`;
     let b = this.days.get(key);
     if (!b) {
-      const programs = programsFor(rule, this.lib.items);
-      b = programs.length ? dayBlocks(rule, programs, adsFor(rule, this.lib.items), day) : [];
+      const items = this.lib.itemsForDay(day);
+      const programs = programsFor(rule, items);
+      b = programs.length ? dayBlocks(rule, programs, adsFor(rule, items), day) : [];
       if (this.days.size > 256) this.days.clear();
       this.days.set(key, b);
     }
@@ -167,9 +169,13 @@ export function createStation(lib: Library): Server {
         .flatMap((b) => b.segments.filter((s) => s.end > from && s.start < to).map((s) => segmentView(s, b)));
       return json(res, { channel: rule.id, from, to, segments });
     }
+    if (get && path === "/api/breaks") {
+      return json(res, lib.breakJob);
+    }
     if (req.method === "POST" && path === "/api/rescan") {
       scanning ??= lib.scan().finally(() => { scanning = null; });
       await scanning;
+      void lib.detectBreaks();
       return json(res, { scannedAt: lib.scannedAt, items: lib.items.length, channels: lib.channels.length });
     }
     if (get && path.startsWith("/media/")) {

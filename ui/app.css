@@ -93,8 +93,8 @@ body.pointer { cursor: default; }
 .g-cell.sel .s { color: #4a3b00; }
 .g-cell.break { background: #0d1f66; color: var(--ink-dim); font-style: italic; }
 .g-now { position: absolute; top: 0; bottom: 0; width: 3px; background: #ff4d4d; z-index: 1; pointer-events: none; }
-.g-foot { padding: .8rem 2vw; font-size: 1.05rem; color: var(--ink-dim); border-top: 3px solid var(--guide-line);
-  letter-spacing: .04em; }
+.g-foot { display: flex; justify-content: space-between; gap: 1rem; padding: .8rem 2vw; font-size: 1.05rem;
+  color: var(--ink-dim); border-top: 3px solid var(--guide-line); letter-spacing: .04em; }
 .g-empty { padding: 3rem; font-size: 1.4rem; color: var(--ink-dim); }
 
 @media (max-width: 700px) {

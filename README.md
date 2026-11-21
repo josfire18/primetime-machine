@@ -24,6 +24,8 @@ Early. The core works and is tested on real video files:
 
 - `core/src/schedule.ts`: clock-based channel schedules, ad pods at breaks, tune-in offsets.
 - `core/src/breaks.ts`: commercial-break detection with ffmpeg (black frames plus silence).
+  The station runs it in the background on every new episode, one at a time at low
+  priority, and keeps the result; breaks found today are used from midnight on.
 - `core/src/sources/local.ts`: a library folder, read with ffprobe; understands the usual
   `Show (Year)/Season N/Show - S01E02 - Title` layouts. Commercials go in an `Ads/` folder,
   dated by a year folder or `(1994)` in the name.

@@ -234,6 +234,13 @@ async function loadGuide() {
     g.data = null;
   }
   renderGuide();
+  try {
+    const b = await api("/api/breaks");
+    $("g-breaks").textContent = b.running
+      ? `Finding commercial breaks: ${b.done} of ${b.total} episodes (in place from midnight)` : "";
+  } catch {
+    $("g-breaks").textContent = "";
+  }
 }
 
 function selectedBlock() {

@@ -45,7 +45,7 @@ Build with Jarvis once he's back up: Claude designs and reviews, Jarvis does cat
 ## Phases
 1. Core: catalog, local-folder source, channel rules, scheduler. Tests against a real folder of public-domain episodes from the Internet Archive.
 2. Station, TV screen and the Electron app (done). Next: installers (electron-builder) for Windows/Mac/Linux.
-3. Ad-break detection, era ad pools and the break editor.
+3. Ad-break detection in the station (done: background, cached, in force from midnight), era ad pools (done), then the break editor.
 4. LAN streaming (HLS via ffmpeg) plus the Roku client.
 5. More sources (Plex, Jellyfin, Archive, manifest), channel sharing, polish.
 

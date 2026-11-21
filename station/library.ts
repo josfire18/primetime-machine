@@ -6,11 +6,18 @@
 // With no channels configured, the station makes one per decade the library covers (plus a
 // movie channel when there are movies), so a fresh install shows a full guide at once.
 // The probe cache sits next to the config, so a restart only probes new or changed files.
+//
+// Commercial breaks: after a scan, every episode not yet checked goes through ffmpeg's
+// black-and-silence detection in the background, one at a time at low priority. Results live
+// in the probe cache with the file. Breaks found today take effect at the next midnight, so
+// ads never jump around inside a show that is already on the air, and every screen agrees on
+// tomorrow from the start.
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { type BreakOptions, detectBreaks } from "../core/src/breaks.ts";
 import type { ChannelRule, MediaItem } from "../core/src/model.ts";
 import { hash } from "../core/src/rng.ts";
 import { programsFor } from "../core/src/schedule.ts";
@@ -71,8 +78,22 @@ export function defaultChannels(library: readonly MediaItem[]): ChannelRule[] {
 /** A short, stable, path-free key for an item, used in media URLs. */
 export const mediaKey = (item: MediaItem): string => hash(item.id).toString(36);
 
+export interface BreakJob {
+  running: boolean;
+  /** Episodes with a break result (including "none found"). */
+  done: number;
+  total: number;
+  failed: number;
+  current?: string;
+}
+
 export class Library {
   items: MediaItem[] = [];
+  breakJob: BreakJob = { running: false, done: 0, total: 0, failed: 0 };
+  /** Detection settings; tests shorten the edges. */
+  breakOptions: BreakOptions = {};
+  private dayViews = new Map<string, MediaItem[]>();
+  private detecting: Promise<void> | null = null;
   channels: ChannelRule[] = [];
   private byKey = new Map<string, MediaItem>();
   private cache: ProbeCache = {};
@@ -100,6 +121,83 @@ export class Library {
     this.channels = (config.channels?.length ? config.channels : defaultChannels(items))
       .slice().sort((a, b) => a.number - b.number);
     this.scannedAt = Date.now();
+    this.dayViews.clear();
+    await this.saveCache();
+  }
+
+  /** When a file's breaks were found, if they have been. */
+  private breaksAt(item: MediaItem): number | undefined {
+    return this.cache[item.locator]?.breaksAt;
+  }
+
+  /** A short key that changes when the breaks in force on `day` change (for day caches). */
+  breaksKey(day: number): string {
+    let n = 0;
+    let latest = 0;
+    for (const m of this.items) {
+      const at = this.breaksAt(m);
+      if (at !== undefined && at <= day) { n++; latest = Math.max(latest, at); }
+    }
+    return `${n}.${latest}`;
+  }
+
+  /** The library as it airs on `day`: breaks found after that day began aren't used yet. */
+  itemsForDay(day: number): MediaItem[] {
+    const key = `${this.scannedAt}|${day}|${this.breaksKey(day)}`;
+    let view = this.dayViews.get(key);
+    if (!view) {
+      view = this.items.map((m) => {
+        const at = this.breaksAt(m);
+        const rec = this.cache[m.locator];
+        if (at !== undefined && at <= day && rec?.breaksSec?.length) return { ...m, breaksSec: rec.breaksSec };
+        if (m.breaksSec) {
+          const { breaksSec: _drop, ...rest } = m;
+          return rest;
+        }
+        return m;
+      });
+      if (this.dayViews.size > 16) this.dayViews.clear();
+      this.dayViews.set(key, view);
+    }
+    return view;
+  }
+
+  /** Find the breaks of every episode not yet checked. Safe to call again: one job at a time. */
+  detectBreaks(): Promise<void> {
+    this.detecting ??= this.runBreakJob().finally(() => { this.detecting = null; });
+    return this.detecting;
+  }
+
+  private async runBreakJob(): Promise<void> {
+    const episodes = this.items.filter((m) => m.kind === "episode");
+    const todo = episodes.filter((m) => this.cache[m.locator] && this.cache[m.locator].breaksAt === undefined);
+    this.breakJob = { running: true, done: episodes.length - todo.length, total: episodes.length, failed: 0 };
+    let unsaved = 0;
+    for (const m of todo) {
+      this.breakJob.current = m.show ? `${m.show}: ${m.title}` : m.title;
+      let found: number[] = [];
+      try {
+        found = await detectBreaks(m.locator, m.durationSec, this.breakOptions);
+      } catch {
+        this.breakJob.failed++;           // unreadable: recorded as "none found", not retried
+      }
+      const rec = this.cache[m.locator];
+      if (rec) {                          // the file may have changed or gone during detection
+        rec.breaksSec = found;
+        rec.breaksAt = Date.now();
+      }
+      this.breakJob.done++;
+      if (++unsaved >= 10) {
+        await this.saveCache();
+        unsaved = 0;
+      }
+    }
+    this.breakJob.running = false;
+    this.breakJob.current = undefined;
+    await this.saveCache();
+  }
+
+  private async saveCache(): Promise<void> {
     await mkdir(dirname(this.cachePath), { recursive: true });
     const tmp = `${this.cachePath}.tmp`;
     await writeFile(tmp, JSON.stringify(this.cache));

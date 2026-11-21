@@ -31,3 +31,7 @@ const port = Number(values.port);
 createStation(lib).listen(port, values.host, () => {
   console.log(`on the air: http://${values.host === "0.0.0.0" ? "127.0.0.1" : values.host}:${port}`);
 });
+void lib.detectBreaks().then(() => {
+  const j = lib.breakJob;
+  if (j.total) console.log(`commercial breaks checked: ${j.done}/${j.total} episodes${j.failed ? `, ${j.failed} unreadable` : ""}`);
+});
