@@ -12,7 +12,7 @@ import { readdir, stat } from "node:fs/promises";
 import { basename, extname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
-import type { Kind, MediaItem, Source } from "../model.ts";
+import type { Kind, MediaInfo, MediaItem, Source } from "../model.ts";
 
 const run = promisify(execFile);
 
@@ -67,12 +67,31 @@ export function parsePath(rel: string): Parsed {
   return { kind, title: tidy(file.replace(/\(?(19|20)\d{2}\)?/, "")) || tidy(file), year: yearIn(file) ?? [...dirs].reverse().map(yearIn).find((y) => y !== undefined) };
 }
 
+/** Duration (seconds) and the first video and audio codecs, from one ffprobe run. */
+export async function probe(file: string): Promise<{ durationSec: number; media: MediaInfo }> {
+  const { stdout } = await run("ffprobe", [
+    "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,profile,level", "-of", "json", file,
+  ]);
+  const j = JSON.parse(stdout) as {
+    format?: { duration?: string };
+    streams?: { codec_type?: string; codec_name?: string; profile?: string; level?: number }[];
+  };
+  const d = Number(j.format?.duration);
+  if (!Number.isFinite(d) || d <= 0) throw new Error(`no duration for ${file}`);
+  const first = (type: string) => j.streams?.find((s) => s.codec_type === type && s.codec_name);
+  const media: MediaInfo = {};
+  const video = first("video");
+  const audio = first("audio");
+  if (video?.codec_name) media.video = video.codec_name;
+  if (video?.profile) media.videoProfile = video.profile;
+  if (typeof video?.level === "number" && video.level > 0) media.videoLevel = video.level;
+  if (audio?.codec_name) media.audio = audio.codec_name;
+  return { durationSec: d, media };
+}
+
 /** Duration in seconds, from ffprobe. */
 export async function probeDuration(file: string): Promise<number> {
-  const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file]);
-  const d = Number(stdout.trim());
-  if (!Number.isFinite(d) || d <= 0) throw new Error(`no duration for ${file}`);
-  return d;
+  return (await probe(file)).durationSec;
 }
 
 async function* walk(dir: string): AsyncGenerator<string> {
@@ -93,6 +112,8 @@ export interface ProbeRecord {
   breaksSec?: number[];
   /** When they were found (epoch ms). A changed file loses both, so they're found again. */
   breaksAt?: number;
+  /** The file's codecs (a record made before codecs were probed lacks this: probed again). */
+  media?: MediaInfo;
 }
 export type ProbeCache = Record<string, ProbeRecord>;
 
@@ -116,17 +137,24 @@ export class LocalFolder implements Source {
       const st = await stat(file);
       seen.add(file);
       let rec = this.cache[file];
-      if (!rec || rec.mtimeMs !== st.mtimeMs || rec.size !== st.size) {
+      const changed = !rec || rec.mtimeMs !== st.mtimeMs || rec.size !== st.size;
+      // (a record from before codecs, or before profile/level, is probed once more)
+      if (changed || !rec.media || (rec.media.video === "h264" && rec.media.videoProfile === undefined)) {
+        let p: Awaited<ReturnType<typeof probe>>;
         try {
-          rec = { mtimeMs: st.mtimeMs, size: st.size, durationSec: await probeDuration(file) };
+          p = await probe(file);
         } catch {
           delete this.cache[file];
           continue;                     // unreadable or not really video: skip it
         }
+        // an unchanged file only missed its codecs: keep what was found about it before
+        rec = changed ? { mtimeMs: st.mtimeMs, size: st.size, durationSec: p.durationSec, media: p.media }
+                      : { ...rec, media: p.media };
         this.cache[file] = rec;
       }
       out.push({
         id: `${this.id}#${rel}`, source: this.id, locator: file, durationSec: rec.durationSec, ...parsePath(rel),
+        ...(rec.media ? { media: rec.media } : {}),
         ...(rec.breaksSec?.length ? { breaksSec: rec.breaksSec } : {}),
       });
     }
