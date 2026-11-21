@@ -2,7 +2,10 @@
 // keys for media so URLs never carry file paths.
 //
 // Config lives in one JSON file (default ~/.primetime-machine/config.json):
-//   { "folders": ["D:/Video/TV", "D:/Video/Ads"], "channels": [ ...ChannelRule ] }
+//   { "folders": ["D:/Video/TV", "D:/Video/Ads"], "channels": [ ...ChannelRule ],
+//     "lan": false, "port": 8420 }
+// "lan": true shares the station with other screens on the home network (a Roku, a phone,
+// another computer's browser); off by default, so only this machine can reach it.
 // With no channels configured, the station makes one per decade the library covers (plus a
 // movie channel when there are movies), so a fresh install shows a full guide at once.
 // The probe cache sits next to the config, so a restart only probes new or changed files.
@@ -26,7 +29,12 @@ import { LocalFolder, type ProbeCache } from "../core/src/sources/local.ts";
 export interface Config {
   folders: string[];
   channels?: ChannelRule[];
+  /** Share with other screens on the home network. Default false: this machine only. */
+  lan?: boolean;
+  port?: number;
 }
+
+export const DEFAULT_PORT = 8420;
 
 export const DEFAULT_CONFIG = join(homedir(), ".primetime-machine", "config.json");
 
@@ -43,7 +51,11 @@ export async function loadConfig(path = DEFAULT_CONFIG): Promise<Config> {
     throw new Error(`${path}: "folders" must be a list of folder paths`);
   }
   if (c.channels !== undefined) c.channels.forEach((ch, i) => checkChannel(ch, `${path}: channels[${i}]`));
-  return { folders: c.folders, channels: c.channels };
+  if (c.lan !== undefined && typeof c.lan !== "boolean") throw new Error(`${path}: "lan" must be true or false`);
+  if (c.port !== undefined && !(Number.isInteger(c.port) && c.port > 0 && c.port < 65536)) {
+    throw new Error(`${path}: "port" must be a port number`);
+  }
+  return { folders: c.folders, channels: c.channels, lan: c.lan ?? false, port: c.port ?? DEFAULT_PORT };
 }
 
 function checkChannel(ch: ChannelRule, where: string): void {

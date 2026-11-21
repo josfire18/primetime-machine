@@ -126,3 +126,39 @@ test("default channels: one per decade with episodes, plus movies", () => {
   const chans = defaultChannels([m("episode", 1972), m("episode", 1994), m("movie", 1968), m("movie", 1981)]);
   assert.deepEqual(chans.map((c) => [c.id, c.years]), [["1970s", [1970, 1979]], ["1990s", [1990, 1999]], ["movies", [1968, 1981]]]);
 });
+
+test("only addresses and home-network names reach the station (DNS rebinding)", async () => {
+  const { allowedHost, hostOf } = await import("../net.ts");
+  const { hostname } = await import("node:os");
+  for (const ok of ["127.0.0.1:8420", "localhost", "[::1]:8420", "192.168.1.20:8420", "100.101.102.103",
+                    "tv.local", "josfire-main.aegean-lizard.ts.net:8420", "media.home.arpa", hostname()]) {
+    assert.ok(allowedHost(hostOf(ok)), ok);
+  }
+  for (const bad of ["evil.example", "127.0.0.1.evil.example", "localhost.evil.com", "", "attacker.ts.net.evil.com",
+                     `${hostname()}.evil.com`]) {
+    assert.ok(!allowedHost(hostOf(bad)), bad);
+  }
+  // and the server enforces it
+  const port = new URL(base).port;
+  const http = await import("node:http");
+  const status = await new Promise<number>((resolve, reject) => {
+    http.get({ host: "127.0.0.1", port, path: "/api/channels", headers: { Host: `evil.example:${port}` } },
+      (r) => { r.resume(); resolve(r.statusCode ?? 0); }).on("error", reject);
+  });
+  assert.equal(status, 403);
+});
+
+test("config: lan and port are optional and checked", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ptm-cfg-"));
+  const cfg = join(dir, "c.json");
+  await writeFile(cfg, JSON.stringify({ folders: [] }));
+  assert.deepEqual(await loadConfig(cfg), { folders: [], channels: undefined, lan: false, port: 8420 });
+  await writeFile(cfg, JSON.stringify({ folders: [], lan: true, port: 9000 }));
+  const c = await loadConfig(cfg);
+  assert.equal(c.lan, true);
+  assert.equal(c.port, 9000);
+  await writeFile(cfg, JSON.stringify({ folders: [], lan: "yes" }));
+  await assert.rejects(loadConfig(cfg), /lan/);
+  await writeFile(cfg, JSON.stringify({ folders: [], port: 70000 }));
+  await assert.rejects(loadConfig(cfg), /port/);
+});

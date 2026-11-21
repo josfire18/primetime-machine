@@ -11,6 +11,7 @@
 //   GET  /                                   the TV screen (ui/)
 //
 // It listens on 127.0.0.1 unless told otherwise: nothing is exposed beyond this machine by default.
+// Requests must name it by an address or a home-network name (see net.ts: DNS rebinding).
 
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -21,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import type { Block, ChannelRule, MediaItem, Segment } from "../core/src/model.ts";
 import { adsFor, DAY_MS, dayBlocks, dayStart, programsFor } from "../core/src/schedule.ts";
 import { type Library, mediaKey } from "./library.ts";
+import { allowedHost, hostOf } from "./net.ts";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const MAX_GUIDE_MS = 12 * 3600_000;
@@ -141,6 +143,7 @@ export function createStation(lib: Library): Server {
   let scanning: Promise<void> | null = null;
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!allowedHost(hostOf(req.headers.host))) throw new HttpError(403, "use this station's address or home-network name");
     const url = new URL(req.url ?? "/", "http://station");
     const path = url.pathname;
     const get = req.method === "GET" || req.method === "HEAD";
