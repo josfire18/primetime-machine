@@ -33,8 +33,11 @@ Early. The core works and is tested on real video files:
 - `ui/`: the TV screen: full-screen player, guide, info bar. Plain HTML/JS, no build step.
   Tested in a real browser against real video (`ui/test/e2e.py`).
 
-Next: the desktop app shell, LAN streaming to Roku, then more sources. See
-[docs/PLAN.md](docs/PLAN.md).
+- `app/`: the desktop app (Electron). Starts the station inside itself and shows the screen
+  full-screen; plays H.264/AAC MP4, which most libraries are. Asks for your folders on
+  first run. Tested on real H.264 video in the real app window (`app/test/app_e2e.py`).
+
+Next: installers, LAN streaming to Roku, then more sources. See [docs/PLAN.md](docs/PLAN.md).
 
 ## Try it
 
@@ -42,13 +45,14 @@ Needs Node 22.18+ and ffmpeg.
 
 ```
 npm install
-npm test
-npm run station -- /path/to/your/library      # then open http://127.0.0.1:8420
+npm run app                                    # the desktop app; asks for your folders
+npm run station -- /path/to/your/library      # or just the station: open http://127.0.0.1:8420
+npm test && npm run e2e                        # unit tests, then browser and app tests
 ```
 
 Keys: ▲▼ change channel, number keys dial one, OK (Enter) opens the guide, I shows what's
-on, M mutes, F goes full screen. The browser plays what it can (H.264 MP4 and WebM in
-Chrome); the desktop app will play the rest.
+on, M mutes, F goes full screen. The app plays H.264/AAC MP4 and WebM; in a browser it
+depends on the browser (Chrome plays both).
 
 To keep a library and your own channels, put them in `~/.primetime-machine/config.json`
 and run `npm run station` with no folders:

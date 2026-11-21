@@ -188,8 +188,9 @@ async function playNow(token) {
   tv.currentTime = at + (Date.now() - now) / 1000;
   try {
     await tv.play();
-  } catch {
-    $("power").hidden = false;                 // the browser wants a key press before sound
+  } catch (e) {
+    // A browser that wants a key press before sound says so; the app never does.
+    if (e?.name === "NotAllowedError") $("power").hidden = false;
   }
 }
 
@@ -358,11 +359,9 @@ async function boot() {
   try {
     state.channels = (await api("/api/channels")).channels;
   } catch {
-    $("power-msg").textContent = "Can't reach the station";
-    return;
+    return card("Can't reach the station", "Is Primetime Machine running?");
   }
   if (!state.channels.length) {
-    $("power").hidden = true;
     return card("No channels yet", "Add your video folders to the config, then rescan");
   }
   let start = 0;
