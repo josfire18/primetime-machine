@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Primetime Machine</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<video id="tv" playsinline preload="auto"></video>
+<canvas id="static" width="160" height="90" hidden></canvas>
+
+<div id="card" class="card" hidden>
+  <div class="card-inner">
+    <div class="card-title" id="card-title">We'll be right back</div>
+    <div class="card-sub" id="card-sub"></div>
+  </div>
+</div>
+
+<div id="osd" hidden></div>
+
+<div id="infobar" hidden>
+  <div class="ib-chan"><span id="ib-num"></span><span id="ib-name"></span></div>
+  <div class="ib-main">
+    <div class="ib-title" id="ib-title"></div>
+    <div class="ib-meta" id="ib-meta"></div>
+    <div class="ib-bar"><i id="ib-progress"></i></div>
+  </div>
+  <div class="ib-next"><span>Up next</span><b id="ib-next"></b></div>
+  <div class="ib-clock" id="ib-clock"></div>
+</div>
+
+<section id="guide" hidden aria-label="Program guide">
+  <header class="g-head">
+    <div class="g-brand">PRIMETIME<br>MACHINE</div>
+    <div class="g-detail">
+      <div class="g-detail-title" id="g-title"></div>
+      <div class="g-detail-meta" id="g-meta"></div>
+    </div>
+    <div class="g-clock" id="g-clock"></div>
+  </header>
+  <div class="g-times" id="g-times"></div>
+  <div class="g-rows" id="g-rows"></div>
+  <footer class="g-foot">▲▼ channels · ◀▶ time · OK watch · G close</footer>
+</section>
+
+<div id="power" class="card">
+  <div class="card-inner">
+    <div class="card-title">Primetime Machine</div>
+    <div class="card-sub" id="power-msg">Press any key to turn on the TV</div>
+  </div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

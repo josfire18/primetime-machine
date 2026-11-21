@@ -10,8 +10,9 @@ originally ran.
   the original ads were cut: a fade to black with the sound dropping out.
 - **Tune in mid-show.** The schedule is computed from the clock, so at 8:25 you join the
   8:00 episode 25 minutes in, ads included. Every device agrees, with no server.
-- **A cable-style guide** (planned): channel grid, 30-minute slots, info bar, remote-first.
-  Desktop app plus a Roku channel that plays from it over your home network.
+- **A cable-style guide**: channel grid, 30-minute slots, info bar, on-screen channel
+  numbers, static between channels. Remote-first: arrows, number keys, OK.
+  A desktop app and a Roku channel that plays from it over your home network are next.
 
 It ships with **no content and no list of sources**. It plays what you point it at: your own
 files, your Plex or Jellyfin server, or public-domain archives. Sources are plug-ins, so
@@ -27,7 +28,12 @@ Early. The core works and is tested on real video files:
   `Show (Year)/Season N/Show - S01E02 - Title` layouts. Commercials go in an `Ads/` folder,
   dated by a year folder or `(1994)` in the name.
 
-Next: the desktop app and guide, LAN streaming to Roku, then more sources. See
+- `station/`: the station, a small local HTTP server: lineup, guide and playout computed
+  from the clock, and media streaming with seeking. Listens on this machine only by default.
+- `ui/`: the TV screen: full-screen player, guide, info bar. Plain HTML/JS, no build step.
+  Tested in a real browser against real video (`ui/test/e2e.py`).
+
+Next: the desktop app shell, LAN streaming to Roku, then more sources. See
 [docs/PLAN.md](docs/PLAN.md).
 
 ## Try it
@@ -37,8 +43,28 @@ Needs Node 22.18+ and ffmpeg.
 ```
 npm install
 npm test
-npm run guide -- /path/to/your/library
+npm run station -- /path/to/your/library      # then open http://127.0.0.1:8420
 ```
+
+Keys: ▲▼ change channel, number keys dial one, OK (Enter) opens the guide, I shows what's
+on, M mutes, F goes full screen. The browser plays what it can (H.264 MP4 and WebM in
+Chrome); the desktop app will play the rest.
+
+To keep a library and your own channels, put them in `~/.primetime-machine/config.json`
+and run `npm run station` with no folders:
+
+```json
+{
+  "folders": ["/media/TV", "/media/Commercials"],
+  "channels": [
+    { "id": "tgif", "number": 4, "name": "TGIF", "years": [1989, 1996], "genres": ["Comedy"] },
+    { "id": "vice", "number": 11, "name": "Cop Shows", "years": [1980, 1989], "shows": ["Miami Vice"] }
+  ]
+}
+```
+
+With no channels listed you get one per decade your library covers, plus a movie channel.
+`npm run guide -- /path` prints the next few hours instead of opening the screen.
 
 ## License
 

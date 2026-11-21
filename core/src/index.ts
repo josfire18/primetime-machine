@@ -7,4 +7,4 @@ export type { OnAir } from "./schedule.ts";
 export { detectBreaks, parseDetect, seams } from "./breaks.ts";
 export type { BreakOptions, Interval } from "./breaks.ts";
 export { LocalFolder, parsePath, probeDuration, VIDEO_EXTS } from "./sources/local.ts";
-export type { Parsed } from "./sources/local.ts";
+export type { Parsed, ProbeCache, ProbeRecord } from "./sources/local.ts";

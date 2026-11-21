@@ -1,0 +1,107 @@
+/* A cable box from the early nineties: a blue grid with a yellow cursor, a green on-screen
+   channel number, and static between channels. Built for a remote and a room-distance view. */
+:root {
+  --guide-bg: #0b1a5c;
+  --guide-cell: #173392;
+  --guide-line: #3f63d6;
+  --guide-head: #c9ced8;
+  --cursor: #f2c94c;
+  --cursor-ink: #1a1400;
+  --ink: #f4f6ff;
+  --ink-dim: #a9b6e8;
+  --osd: #47ff6b;
+  --font: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Courier New", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; color: var(--ink); font-family: var(--font); overflow: hidden; cursor: none; }
+body.pointer { cursor: default; }
+
+#tv { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+#static { position: fixed; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; z-index: 5; }
+
+.card {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 4;
+  background: radial-gradient(ellipse at center, #1b2b7a 0%, #070d33 70%, #000 100%);
+}
+.card[hidden] { display: none; }
+.card-inner { text-align: center; padding: 2rem 3rem; border: 3px double var(--guide-line); background: rgba(5, 12, 48, .6); }
+.card-title { font-size: clamp(1.8rem, 5vw, 4rem); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  text-shadow: 3px 3px 0 #000; }
+.card-sub { margin-top: .6rem; font-size: clamp(1rem, 2.2vw, 1.6rem); color: var(--ink-dim); }
+#power { z-index: 20; }
+#power .card-title { color: var(--cursor); }
+
+#osd {
+  position: fixed; top: 4vh; right: 5vw; z-index: 6;
+  font: 700 clamp(2.5rem, 7vw, 5.5rem) var(--mono); color: var(--osd);
+  text-shadow: 0 0 8px rgba(71, 255, 107, .7), 3px 3px 0 #000;
+}
+#osd[hidden] { display: none; }
+
+#infobar {
+  position: fixed; left: 4vw; right: 4vw; bottom: 5vh; z-index: 6;
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: 1.4rem; align-items: center;
+  padding: 1rem 1.4rem; background: linear-gradient(180deg, rgba(23, 51, 146, .95), rgba(11, 26, 92, .95));
+  border: 2px solid var(--guide-line); box-shadow: 0 6px 24px rgba(0, 0, 0, .6);
+}
+#infobar[hidden] { display: none; }
+.ib-chan { display: flex; flex-direction: column; align-items: center; min-width: 6rem; padding-right: 1.2rem; border-right: 2px solid var(--guide-line); }
+#ib-num { font: 700 2.4rem var(--mono); color: var(--cursor); }
+#ib-name { font-size: 1rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .05em; }
+.ib-title { font-size: 1.7rem; font-weight: 700; }
+.ib-meta { margin-top: .2rem; font-size: 1.05rem; color: var(--ink-dim); }
+.ib-bar { margin-top: .6rem; height: .45rem; background: rgba(255, 255, 255, .15); }
+.ib-bar i { display: block; height: 100%; width: 0; background: var(--cursor); }
+.ib-next { display: flex; flex-direction: column; max-width: 18rem; font-size: 1rem; color: var(--ink-dim); }
+.ib-next b { color: var(--ink); font-size: 1.15rem; }
+.ib-clock { font: 700 1.6rem var(--mono); color: var(--ink); }
+
+#guide {
+  position: fixed; inset: 0; z-index: 8; display: grid; grid-template-rows: auto auto 1fr auto;
+  background: linear-gradient(180deg, #08134a 0%, var(--guide-bg) 30%, #07103d 100%);
+}
+#guide[hidden] { display: none; }
+.g-head { display: grid; grid-template-columns: 11rem 1fr auto; gap: 1.5rem; align-items: center;
+  padding: 1.6vh 2vw; height: 30vh; border-bottom: 3px solid var(--guide-line); }
+.g-brand { font: 900 1.5rem/1.05 var(--font); letter-spacing: .08em; color: var(--cursor);
+  text-shadow: 2px 2px 0 #000; padding: .8rem; border: 3px double var(--cursor); text-align: center; }
+.g-detail-title { font-size: clamp(1.6rem, 3.2vw, 2.6rem); font-weight: 700; text-shadow: 2px 2px 0 #000; }
+.g-detail-meta { margin-top: .5rem; font-size: clamp(1rem, 1.8vw, 1.4rem); color: var(--ink-dim); }
+.g-clock { font: 700 clamp(1.6rem, 3vw, 2.4rem) var(--mono); }
+
+.g-times, .g-row { display: grid; grid-template-columns: 11rem 1fr; }
+.g-times { background: var(--guide-head); color: #0b1a5c; font-weight: 700; font-size: 1.15rem; }
+.g-times .g-chan { background: var(--guide-head); }
+.g-timecols { position: relative; height: 2.2rem; }
+.g-timecols span { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; padding-left: .5rem;
+  border-left: 2px solid #8b93a6; }
+.g-rows { overflow: hidden; }
+.g-row { height: 4.2rem; border-bottom: 2px solid var(--guide-line); }
+.g-chan { display: flex; align-items: center; gap: .6rem; padding: 0 .8rem; background: #0e2475;
+  border-right: 2px solid var(--guide-line); white-space: nowrap; overflow: hidden; }
+.g-chan b { font: 700 1.5rem var(--mono); color: var(--cursor); min-width: 2.4rem; }
+.g-chan span { font-size: 1.05rem; text-transform: uppercase; color: var(--ink-dim); text-overflow: ellipsis; overflow: hidden; }
+.g-row.on .g-chan { background: #1d40b3; }
+.g-cells { position: relative; overflow: hidden; }
+.g-cell { position: absolute; top: 0; bottom: 0; padding: .35rem .6rem; background: var(--guide-cell);
+  border-left: 2px solid var(--guide-line); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.g-cell .t { font-size: 1.2rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.g-cell .s { font-size: .95rem; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; }
+.g-cell.cut-left::before { content: "◀ "; color: var(--ink-dim); }
+.g-cell.sel { background: var(--cursor); color: var(--cursor-ink); }
+.g-cell.sel .s { color: #4a3b00; }
+.g-cell.break { background: #0d1f66; color: var(--ink-dim); font-style: italic; }
+.g-now { position: absolute; top: 0; bottom: 0; width: 3px; background: #ff4d4d; z-index: 1; pointer-events: none; }
+.g-foot { padding: .8rem 2vw; font-size: 1.05rem; color: var(--ink-dim); border-top: 3px solid var(--guide-line);
+  letter-spacing: .04em; }
+.g-empty { padding: 3rem; font-size: 1.4rem; color: var(--ink-dim); }
+
+@media (max-width: 700px) {
+  .g-head { grid-template-columns: 1fr auto; }
+  .g-brand { display: none; }
+  .g-times, .g-row { grid-template-columns: 6.5rem 1fr; }
+  .g-chan span { display: none; }
+  #infobar { grid-template-columns: auto 1fr; }
+  .ib-next, .ib-clock { display: none; }
+}

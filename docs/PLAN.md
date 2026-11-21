@@ -16,13 +16,19 @@ Build with Jarvis once he's back up: Claude designs and reviews, Jarvis does cat
    - Source plug-in interface: `list()`, `metadata(item)`, `resolve(item) -> playable URL or file`, plus optional `breaks(item)`.
    - Catalog: every item with show, season/episode, air year, runtime, genre, network, and ad-break timestamps.
    - Channel rules, scheduler and ad placement (below).
-2. **Desktop app** (Electron or Tauri; Windows/Mac/Linux)
-   - Scans sources, builds the catalog and plays full-screen with the guide.
-   - Doubles as the home "station": serves HLS streams to the Roku and other devices on the LAN. No internet hosting.
-3. **Roku app** (BrightScript/SceneGraph)
+2. **Station** (`station/`, built): a small local HTTP server around the core. It scans the
+   folders (probing only new or changed files), computes the lineup, guide and playout from
+   the clock, and streams media with seeking. Every screen talks to it the same way.
+3. **TV screen** (`ui/`, built): the player, guide and info bar as a plain web page served by
+   the station. The desktop app is a window on it; a browser on the same machine works too.
+4. **Desktop app** (Electron; Windows/Mac/Linux): starts the station and opens the screen
+   full-screen. Electron because its Chromium plays H.264/AAC, which most libraries use.
+   - Doubles as the home station for the Roku: LAN access is an opt-in setting, then HLS via
+     ffmpeg for files the Roku can't play directly. No internet hosting.
+5. **Roku app** (BrightScript/SceneGraph)
    - Thin client: guide plus player, talks to the desktop app on the LAN.
    - Installed as a private/sideloaded channel, like Jellyfin's.
-4. **Later:** Android TV / Fire TV client.
+6. **Later:** Android TV / Fire TV client.
 
 ## How the key features work
 - **Clock-based schedule.** The schedule is a pure function of (channel rules, catalog, seed, date), so the guide is identical on every device with no shared state. Tune in at 8:25 → the 8:00 show starts 25 minutes in, counting the ad breaks already played.
@@ -38,7 +44,7 @@ Build with Jarvis once he's back up: Claude designs and reviews, Jarvis does cat
 
 ## Phases
 1. Core: catalog, local-folder source, channel rules, scheduler. Tests against a real folder of public-domain episodes from the Internet Archive.
-2. Desktop player plus guide UI.
+2. Station plus TV screen (done), then the Electron shell.
 3. Ad-break detection, era ad pools and the break editor.
 4. LAN streaming (HLS via ffmpeg) plus the Roku client.
 5. More sources (Plex, Jellyfin, Archive, manifest), channel sharing, polish.
@@ -53,5 +59,5 @@ Build with Jarvis once he's back up: Claude designs and reviews, Jarvis does cat
   - nexusjuan12/Nostalgiavision: a Plex-based retro TV guide in the browser, the same idea as ours.
   - justinloveless/NostalgiaVision: an Apple TV app.
   - A different name avoids confusion; options to consider: Channel Surf, RerunTV, Dial Era, Rabbit Ears.
-- **Desktop shell:** Electron (simplest video support) vs Tauri (much lighter).
+- **Desktop shell:** settled: Electron (H.264/AAC playback built in; Tauri's system webviews vary).
 - **Ad library:** where do you want public-domain/archival commercials to come from by default? The Internet Archive has large collections.

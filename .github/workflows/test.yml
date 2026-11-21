@@ -14,3 +14,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The TV screen in a real browser against a real station and real video.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q playwright==1.63.0 && python -m playwright install --with-deps chromium
+      - run: python ui/test/e2e.py
