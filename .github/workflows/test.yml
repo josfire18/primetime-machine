@@ -14,6 +14,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run roku         # compile and validate the Roku channel, build its sideload zip
       # The TV screen in a real browser against a real station and real video.
       - uses: actions/setup-python@v6
         with:
