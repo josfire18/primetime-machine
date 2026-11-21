@@ -78,3 +78,26 @@ test("end to end: the episode's own seams carry its era's ads, and tune-in resol
   const playing = now.segment.item ?? null;
   assert.ok(playing === null || playing.locator.startsWith(root));
 });
+
+test("a rescan reuses the probe cache, re-probes changed files and forgets deleted ones", async () => {
+  const { utimes, rm, copyFile } = await import("node:fs/promises");
+  const dir = await mkdtemp(join(tmpdir(), "ptm-cache-"));
+  await makeClip(join(dir, "Ads/1990/A.mp4"), [{ show: 2 }]);
+  await makeClip(join(dir, "Ads/1990/B.mp4"), [{ show: 3 }]);
+  const cache = {};
+  const first = await new LocalFolder(dir, "c", cache).list();
+  assert.equal(first.length, 2);
+  // poison the cached duration of A: an unchanged file must come back from the cache
+  const a = join(dir, "Ads/1990/A.mp4");
+  (cache as Record<string, { durationSec: number }>)[a].durationSec = 99;
+  const second = await new LocalFolder(dir, "c", cache).list();
+  assert.equal(second.find((m) => m.title === "A")!.durationSec, 99, "unchanged file was re-probed");
+  // a touched file is probed again; a deleted one leaves the cache
+  await copyFile(join(dir, "Ads/1990/B.mp4"), a);
+  await utimes(a, new Date(), new Date(Date.now() + 5000));
+  await rm(join(dir, "Ads/1990/B.mp4"));
+  const third = await new LocalFolder(dir, "c", cache).list();
+  assert.equal(third.length, 1);
+  assert.ok(Math.abs(third[0].durationSec - 3) < 0.5, String(third[0].durationSec));
+  assert.deepEqual(Object.keys(cache), [a]);
+});

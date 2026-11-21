@@ -9,9 +9,11 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test core/test/*.test.ts",
+    "test": "node --test core/test/*.test.ts station/test/*.test.ts",
     "typecheck": "tsc -p .",
-    "guide": "node core/cli.ts"
+    "guide": "node core/cli.ts",
+    "station": "node station/main.ts",
+    "e2e": "python3 ui/test/e2e.py"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

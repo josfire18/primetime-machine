@@ -8,7 +8,7 @@
 // Durations come from ffprobe; nothing is guessed from file size.
 
 import { execFile } from "node:child_process";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { basename, extname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -84,27 +84,46 @@ async function* walk(dir: string): AsyncGenerator<string> {
   }
 }
 
+/** What a scan learned about one file, kept between scans so unchanged files aren't re-probed. */
+export interface ProbeRecord {
+  mtimeMs: number;
+  size: number;
+  durationSec: number;
+}
+export type ProbeCache = Record<string, ProbeRecord>;
+
 export class LocalFolder implements Source {
   readonly id: string;
   readonly root: string;
+  /** Keyed by file path. list() reads it, updates it, and drops files that are gone. */
+  readonly cache: ProbeCache;
 
-  constructor(root: string, id = `local:${root}`) {
+  constructor(root: string, id = `local:${root}`, cache: ProbeCache = {}) {
     this.root = root;
     this.id = id;
+    this.cache = cache;
   }
 
   async list(): Promise<MediaItem[]> {
     const out: MediaItem[] = [];
+    const seen = new Set<string>();
     for await (const file of walk(this.root)) {
       const rel = relative(this.root, file).split(sep).join("/");
-      let durationSec: number;
-      try {
-        durationSec = await probeDuration(file);
-      } catch {
-        continue;                       // unreadable or not really video: skip it
+      const st = await stat(file);
+      seen.add(file);
+      let rec = this.cache[file];
+      if (!rec || rec.mtimeMs !== st.mtimeMs || rec.size !== st.size) {
+        try {
+          rec = { mtimeMs: st.mtimeMs, size: st.size, durationSec: await probeDuration(file) };
+        } catch {
+          delete this.cache[file];
+          continue;                     // unreadable or not really video: skip it
+        }
+        this.cache[file] = rec;
       }
-      out.push({ id: `${this.id}#${rel}`, source: this.id, locator: file, durationSec, ...parsePath(rel) });
+      out.push({ id: `${this.id}#${rel}`, source: this.id, locator: file, durationSec: rec.durationSec, ...parsePath(rel) });
     }
+    for (const file of Object.keys(this.cache)) if (file.startsWith(this.root) && !seen.has(file)) delete this.cache[file];
     return out.sort((a, b) => a.id.localeCompare(b.id));
   }
 }

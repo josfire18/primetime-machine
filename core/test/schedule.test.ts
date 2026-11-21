@@ -99,3 +99,19 @@ test("the guide spans midnight; a day with nothing that fits ends in a station b
   assert.equal(blocks.at(-1)!.end, DAY + DAY_MS);
   assert.equal(onAir({ ...nineties, years: [1950, 1951] }, library, DAY), null, "no programs, nothing on air");
 });
+
+test("a small channel cycles through everything evenly, never the same show twice in a row", () => {
+  const few = [ep("a", 1992, 22 * MIN), ep("b", 1992, 22 * MIN), ep("c", 1992, 22 * MIN), ep("d", 1992, 44 * MIN)];
+  const rule: ChannelRule = { id: "small", number: 9, name: "Small", years: [1990, 1999], seed: "x" };
+  for (let d = 0; d < 7; d++) {
+    const blocks = dayBlocks(rule, few, [], DAY + d * DAY_MS);
+    const counts = new Map<string, number>();
+    blocks.forEach((b, i) => {
+      counts.set(b.program!.id, (counts.get(b.program!.id) ?? 0) + 1);
+      if (i) assert.notEqual(b.program!.id, blocks[i - 1].program!.id, `day ${d}: repeat at ${i}`);
+    });
+    const n = [...counts.values()];
+    assert.equal(counts.size, 4, "every program airs");
+    assert.ok(Math.max(...n) - Math.min(...n) <= 1, `uneven: ${[...counts]}`);
+  }
+});

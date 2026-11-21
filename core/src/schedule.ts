@@ -116,20 +116,30 @@ export function playout(
 
 /**
  * One channel's whole day. `programs` and `ads` are already filtered for the channel
- * (programsFor / adsFor). No program airs twice in a day while unaired ones still fit.
+ * (programsFor / adsFor). Programs air in shuffled cycles: none airs twice in a cycle while
+ * unaired ones still fit, and when the cycle runs out a new one is shuffled, never opening
+ * with the program that just aired (unless it is the only one).
  */
 export function dayBlocks(
   rule: ChannelRule, programs: readonly MediaItem[], ads: readonly MediaItem[], day: number,
 ): Block[] {
   const slot = slotMs(rule);
   const seed = `${rule.seed ?? ""}|${rule.id}|${day}`;
-  const order = shuffled(programs, rng(seed));
+  let cycle = 0;
+  let order = shuffled(programs, rng(seed));
   const used = new Set<string>();
   const blocks: Block[] = [];
+  let last: string | undefined;
   for (let t = day; t < day + DAY_MS; ) {
     const room = day + DAY_MS - t;
     const fits = (m: MediaItem) => Math.ceil(ms(m.durationSec) / slot) * slot <= room;
-    const pick = order.find((m) => !used.has(m.id) && fits(m)) ?? order.find(fits);
+    let pick = order.find((m) => !used.has(m.id) && fits(m));
+    if (!pick && order.some(fits)) {
+      // everything that fits has aired: start a new cycle
+      used.clear();
+      order = shuffled(programs, rng(`${seed}|cycle${++cycle}`));
+      pick = order.find((m) => m.id !== last && fits(m)) ?? order.find(fits);
+    }
     if (!pick) {
       // nothing fits the rest of the day: a station break until midnight
       blocks.push({
@@ -139,6 +149,7 @@ export function dayBlocks(
       break;
     }
     used.add(pick.id);
+    last = pick.id;
     const end = t + Math.ceil(ms(pick.durationSec) / slot) * slot;
     blocks.push({ channelId: rule.id, program: pick, start: t, end, segments: playout(pick, t, end, ads, `${seed}|${t}`) });
     t = end;

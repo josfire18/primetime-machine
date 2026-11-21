@@ -11,5 +11,5 @@
     "noUnusedLocals": true,
     "types": ["node"]
   },
-  "include": ["core"]
+  "include": ["core", "station"]
 }
