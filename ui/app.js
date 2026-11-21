@@ -17,6 +17,8 @@ const state = {
   index: 0,
   playout: null,          // { channel, from, to, segments }
   current: null,          // the segment on screen
+  base: 0,                // seconds into the file where the loaded media starts (live streams)
+  stream: { seg: null, url: "", base: 0, at: 0 },   // the live stream in use, if any
   token: 0,               // bumps on every tune, so a slow fetch can't play the wrong channel
   dial: "",
   dialTimer: 0,
@@ -151,7 +153,7 @@ async function tune(index) {
   try { localStorage.setItem("ptm.channel", ch.id); } catch { /* storage off: fine */ }
 }
 
-async function playNow(token) {
+async function playNow(token, force = false) {
   const now = Date.now();
   let seg = segmentAt(now);
   if (!seg) {                                  // ran past what we fetched: get the next stretch
@@ -175,8 +177,27 @@ async function playNow(token) {
   }
   hideCard();
   const at = seg.fromSec + (now - seg.start) / 1000;
-  if (tv.getAttribute("src") !== seg.src) {
-    tv.src = seg.src;
+  // Files the screen can't play as-is come as a live stream from the station, which starts
+  // at `base` seconds into the file (a keyframe when the video is copied).
+  let url = seg.src;
+  let base = 0;
+  if (seg.live) {
+    if (state.stream.seg === seg && !force) {
+      ({ url, base } = state.stream);
+    } else {
+      try {
+        const r = await api(`/api/live?key=${encodeURIComponent(seg.src.split("/")[2])}&at=${at.toFixed(3)}`);
+        url = r.src;
+        base = r.start;
+      } catch {
+        return card("No signal", "The station couldn't convert this file");
+      }
+      if (token !== state.token) return;
+      state.stream = { seg, url, base, at: Date.now() };
+    }
+  }
+  if (tv.getAttribute("src") !== url) {
+    tv.src = url;
     await new Promise((res) => {
       const done = () => { tv.removeEventListener("loadedmetadata", done); tv.removeEventListener("error", done); res(); };
       tv.addEventListener("loadedmetadata", done);
@@ -185,7 +206,10 @@ async function playNow(token) {
     if (token !== state.token) return;
   }
   if (tv.error) return card("No signal", "This file can't be played here");
-  tv.currentTime = at + (Date.now() - now) / 1000;
+  state.base = base;
+  const target = at + (Date.now() - now) / 1000 - base;
+  if (seg.live) seekWhenBuffered(target, token);
+  else tv.currentTime = target;
   try {
     await tv.play();
   } catch (e) {
@@ -194,13 +218,36 @@ async function playNow(token) {
   }
 }
 
+/** A live stream can only seek inside what has arrived: wait for it (briefly), then seek. */
+function seekWhenBuffered(target, token) {
+  if (target < 0.25) return;
+  const started = Date.now();
+  const tryIt = () => {
+    if (token !== state.token) return;
+    const t = target + (Date.now() - started) / 1000;
+    for (let i = 0; i < tv.buffered.length; i++) {
+      if (tv.buffered.start(i) <= t && t < tv.buffered.end(i) - 0.2) {
+        tv.currentTime = t;
+        return;
+      }
+    }
+    if (Date.now() - started < 10_000) setTimeout(tryIt, 150);
+  };
+  tryIt();
+}
+
 function tick() {
   const seg = state.current;
   if (state.playout && (!seg || Date.now() >= seg.end)) {
     playNow(state.token);
   } else if (seg && seg.src && !tv.paused && !tv.seeking && tv.readyState >= 2) {
-    const expected = seg.fromSec + (Date.now() - seg.start) / 1000;
-    if (Math.abs(tv.currentTime - expected) > DRIFT_SEC) tv.currentTime = expected;
+    const expected = seg.fromSec + (Date.now() - seg.start) / 1000 - state.base;
+    if (Math.abs(tv.currentTime - expected) > DRIFT_SEC) {
+      const buffered = [...Array(tv.buffered.length).keys()]
+        .some((i) => tv.buffered.start(i) <= expected && expected < tv.buffered.end(i) - 0.2);
+      if (!seg.live || buffered) tv.currentTime = expected;
+      else if (Date.now() - state.stream.at > 15_000) playNow(state.token, true);   // fell behind: a fresh stream
+    }
   }
   if (!$("infobar").hidden) updateInfo();
   if (state.guide.open) $("g-clock").textContent = time(Date.now());

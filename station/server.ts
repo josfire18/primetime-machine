@@ -6,6 +6,9 @@
 //   GET  /api/guide?from=ms&to=ms            every channel's programs in a window (<= 12 h)
 //   GET  /api/playout?channel=id&from=&to=   one channel's segments in a window (<= 6 h)
 //   GET  /media/<key>                        a media file (keys come from playout; no paths)
+//   GET  /api/live?key=<key>&at=<sec>        where a live stream for that second really starts
+//   GET  /media/<key>/live?start=<sec>       the file through ffmpeg as fragmented MP4 (compat.ts),
+//                                            for segments marked "live": codecs a screen can't play
 //   GET  /api/breaks                         progress of commercial-break detection
 //   POST /api/rescan                         re-read the config and folders
 //   GET  /                                   the TV screen (ui/)
@@ -21,6 +24,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Block, ChannelRule, MediaItem, Segment } from "../core/src/model.ts";
 import { adsFor, DAY_MS, dayBlocks, dayStart, programsFor } from "../core/src/schedule.ts";
+import { type Delivery, delivery, liveStart, spawnLive } from "./compat.ts";
 import { type Library, mediaKey } from "./library.ts";
 import { allowedHost, hostOf } from "./net.ts";
 
@@ -82,6 +86,8 @@ const programView = (p: MediaItem | null) => p && {
 const segmentView = (s: Segment, b: Block) => ({
   role: s.role, start: s.start, end: s.end, fromSec: s.fromSec, toSec: s.toSec,
   src: s.item ? `/media/${mediaKey(s.item)}` : null,
+  /** Play through /api/live: the file's codecs need ffmpeg on the way. */
+  live: s.item ? delivery(s.item).mode === "live" : false,
   title: s.item?.title ?? null,
   program: programView(b.program),
   /** The guide slot this segment belongs to. */
@@ -138,9 +144,21 @@ async function sendFile(req: IncomingMessage, res: ServerResponse, file: string,
   createReadStream(file).pipe(res);
 }
 
+/** Live ffmpeg streams, oldest first; past MAX_LIVE the oldest is stopped. */
+const MAX_LIVE = 4;
+
 export function createStation(lib: Library): Server {
   const days = new DayCache(lib);
   let scanning: Promise<void> | null = null;
+  const live: { kill: () => void }[] = [];
+
+  function liveItem(key: string): [MediaItem, Extract<Delivery, { mode: "live" }>] {
+    const item = lib.item(key);
+    if (!item) throw new HttpError(404, "unknown media");
+    const d = delivery(item);
+    if (d.mode !== "live") throw new HttpError(400, "this file plays directly");
+    return [item, d];
+  }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!allowedHost(hostOf(req.headers.host))) throw new HttpError(403, "use this station's address or home-network name");
@@ -180,6 +198,34 @@ export function createStation(lib: Library): Server {
       await scanning;
       void lib.detectBreaks();
       return json(res, { scannedAt: lib.scannedAt, items: lib.items.length, channels: lib.channels.length });
+    }
+    if (get && path === "/api/live") {
+      const [item, d] = liveItem(url.searchParams.get("key") ?? "");
+      const at = Number(url.searchParams.get("at") ?? 0);
+      if (!Number.isFinite(at) || at < 0) throw new HttpError(400, "at must be seconds");
+      const start = await liveStart(item, d, at);
+      return json(res, { start, src: `/media/${mediaKey(item)}/live?start=${start}`, video: d.video, audio: d.audio });
+    }
+    if (get && /^\/media\/[a-z0-9]+\/live$/.test(path)) {
+      const [item, d] = liveItem(path.split("/")[2]);
+      const start = Number(url.searchParams.get("start") ?? 0);
+      if (!Number.isFinite(start) || start < 0 || start >= item.durationSec) throw new HttpError(400, "start out of range");
+      const p = spawnLive(item.locator, start, d);
+      const entry = { kill: () => { if (p.exitCode === null) p.kill("SIGKILL"); } };
+      live.push(entry);
+      while (live.length > MAX_LIVE) live.shift()!.kill();
+      const done = () => {
+        entry.kill();
+        const i = live.indexOf(entry);
+        if (i >= 0) live.splice(i, 1);
+      };
+      res.on("close", done);
+      p.on("close", done);
+      p.stderr.resume();
+      res.writeHead(200, { "Content-Type": "video/mp4", "Cache-Control": "no-store" });
+      if (req.method === "HEAD") return void res.end();
+      p.stdout.pipe(res);
+      return;
     }
     if (get && path.startsWith("/media/")) {
       const item = lib.item(path.slice("/media/".length));

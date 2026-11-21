@@ -66,8 +66,12 @@ npm test && npm run e2e                        # unit tests, then browser and ap
 ```
 
 Keys: ▲▼ change channel, number keys dial one, OK (Enter) opens the guide, I shows what's
-on, M mutes, F goes full screen. The app plays H.264/AAC MP4 and WebM; in a browser it
-depends on the browser (Chrome plays both).
+on, M mutes, F goes full screen.
+
+**Any file plays.** MP4 (H.264/AAC) and WebM play as they are. Everything else (MKV, AC3 or
+DTS sound, HEVC, MPEG-2, AVI) goes through ffmpeg on the way to the screen: the video is
+copied when the screen can decode it and re-encoded only when it can't, the sound is
+converted to AAC when needed, and it still starts on the clock's second.
 
 To keep a library and your own channels, put them in `~/.primetime-machine/config.json`
 and run `npm run station` with no folders:

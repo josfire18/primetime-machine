@@ -23,6 +23,14 @@ export interface MediaItem {
   breaksSec?: number[];
   genres?: string[];
   network?: string;
+  /** What's inside the file, when known: decides whether a screen can play it as-is. */
+  media?: MediaInfo;
+}
+
+export interface MediaInfo {
+  /** ffprobe's codec names, e.g. "h264", "hevc", "vp9"; "aac", "ac3", "dts", "opus". */
+  video?: string;
+  audio?: string;
 }
 
 export interface ChannelRule {

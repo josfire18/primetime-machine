@@ -1,4 +1,4 @@
-export type { Block, ChannelRule, Kind, MediaItem, Role, Segment, Source } from "./model.ts";
+export type { Block, ChannelRule, Kind, MediaInfo, MediaItem, Role, Segment, Source } from "./model.ts";
 export { hash, rng, shuffled } from "./rng.ts";
 export {
   AD_YEAR_SLACK, DAY_MS, adsFor, breakPoints, dayBlocks, dayStart, guide, onAir, playout, programsFor, slotMs,
@@ -6,5 +6,5 @@ export {
 export type { OnAir } from "./schedule.ts";
 export { detectBreaks, parseDetect, seams } from "./breaks.ts";
 export type { BreakOptions, Interval } from "./breaks.ts";
-export { LocalFolder, parsePath, probeDuration, VIDEO_EXTS } from "./sources/local.ts";
+export { LocalFolder, parsePath, probe, probeDuration, VIDEO_EXTS } from "./sources/local.ts";
 export type { Parsed, ProbeCache, ProbeRecord } from "./sources/local.ts";
