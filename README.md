@@ -70,6 +70,13 @@ and run `npm run station` with no folders:
 ```
 
 With no channels listed you get one per decade your library covers, plus a movie channel.
+
+**Other screens at home.** Add `"lan": true` to the config (or turn on File > Share with other
+screens at home in the app, or `npm run station -- --lan`) and any phone, laptop or TV browser
+on your network can open the station's address. It's off by default, so nothing outside this
+machine can reach it. Either way the station only answers requests that name it by an address
+or a home-network name (`.local`, `.lan`, Tailscale's `.ts.net`, this computer's name), which
+keeps websites you visit from reading it through DNS rebinding.
 `npm run guide -- /path` prints the next few hours instead of opening the screen.
 
 ## License
