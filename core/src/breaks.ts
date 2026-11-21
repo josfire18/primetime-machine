@@ -3,6 +3,7 @@
 // (blackdetect, silencedetect); a break is where a black stretch and a silent stretch overlap.
 
 import { spawn } from "node:child_process";
+import { setPriority } from "node:os";
 
 export interface Interval {
   start: number;
@@ -77,6 +78,8 @@ export function detectBreaks(file: string, durationSec: number, opts: BreakOptio
   ];
   return new Promise((resolve, reject) => {
     const p = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    // a whole-file decode: keep it out of the way of playback
+    try { if (p.pid) setPriority(p.pid, 10); } catch { /* not allowed here: run at normal priority */ }
     let err = "";
     p.stderr.on("data", (d: Buffer) => { err += d.toString(); });
     p.on("error", reject);

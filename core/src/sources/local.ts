@@ -89,6 +89,10 @@ export interface ProbeRecord {
   mtimeMs: number;
   size: number;
   durationSec: number;
+  /** Commercial breaks found in the file (seconds), once detection has run; [] = none found. */
+  breaksSec?: number[];
+  /** When they were found (epoch ms). A changed file loses both, so they're found again. */
+  breaksAt?: number;
 }
 export type ProbeCache = Record<string, ProbeRecord>;
 
@@ -121,7 +125,10 @@ export class LocalFolder implements Source {
         }
         this.cache[file] = rec;
       }
-      out.push({ id: `${this.id}#${rel}`, source: this.id, locator: file, durationSec: rec.durationSec, ...parsePath(rel) });
+      out.push({
+        id: `${this.id}#${rel}`, source: this.id, locator: file, durationSec: rec.durationSec, ...parsePath(rel),
+        ...(rec.breaksSec?.length ? { breaksSec: rec.breaksSec } : {}),
+      });
     }
     for (const file of Object.keys(this.cache)) if (file.startsWith(this.root) && !seen.has(file)) delete this.cache[file];
     return out.sort((a, b) => a.id.localeCompare(b.id));
