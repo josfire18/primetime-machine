@@ -23,3 +23,6 @@ jobs:
       - run: python ui/test/e2e.py
       # The desktop app: Electron plays H.264 from the in-process station.
       - run: python app/test/app_e2e.py
+      # The packaged app (what the installers ship) plays too.
+      - run: npx electron-builder --linux dir --publish never
+      - run: PTM_APP=build/dist/linux-unpacked/primetime-machine python app/test/app_e2e.py

@@ -47,7 +47,14 @@ Early. The core works and is tested on real video files:
 Next: try the Roku channel on a real TV, installers, then more sources. See
 [docs/PLAN.md](docs/PLAN.md).
 
-## Try it
+## Install
+
+Installers for Windows, macOS and Linux are attached to each
+[release](https://github.com/josfire18/primetime-machine/releases). They're not code-signed
+yet: Windows SmartScreen and macOS Gatekeeper will ask you to confirm the first time
+(on a Mac, right-click the app and choose Open).
+
+## Try it from the source
 
 Needs Node 22.18+ and ffmpeg.
 
