@@ -4,6 +4,7 @@ DevTools protocol.
 
 Run:  python3 app/test/app_e2e.py     (needs ffmpeg, the electron devDependency, Python
 Playwright; on Linux without a display it runs itself under xvfb-run)
+      PTM_APP=path/to/built/app python3 app/test/app_e2e.py   tests a packaged build instead
 """
 import json
 import os
@@ -61,8 +62,9 @@ def main() -> int:
     cfg.write_text(json.dumps({"folders": [str(media)], "channels": [
         {"id": "90s", "number": 12, "name": "The 90s", "years": [1990, 1999], "slotMinutes": 1}]}))
     cdp = free_port()
-    args = [electron(), str(ROOT / "app" / "main.mjs"), "--config", str(cfg), "--port", "0", "--windowed",
-            f"--remote-debugging-port={cdp}"]
+    packaged = os.environ.get("PTM_APP")      # a built app (npm run dist) instead of the sources
+    launch = [packaged] if packaged else [electron(), str(ROOT / "app" / "main.mjs")]
+    args = [*launch, "--config", str(cfg), "--port", "0", "--windowed", f"--remote-debugging-port={cdp}"]
     if sys.platform.startswith("linux") and (os.environ.get("CI") or os.geteuid() == 0):
         # Test-only: Chromium can't sandbox as root, and Ubuntu 24.04 runners block the
         # user namespaces its sandbox needs. The app itself always runs sandboxed.
