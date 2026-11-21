@@ -39,6 +39,9 @@ def free_port() -> int:
 
 
 def electron() -> str:
+    """The Electron binary. Its package no longer downloads it at install time, so fetch it
+    here the same way `npm run app` does (a no-op when it's already there)."""
+    subprocess.run(["node", str(ROOT / "node_modules" / "electron" / "install.js")], check=True)
     exe = ROOT / "node_modules" / "electron" / "dist" / ("electron.exe" if os.name == "nt" else "electron")
     if not exe.exists():
         sys.exit("electron is not installed: npm install")

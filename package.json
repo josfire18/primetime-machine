@@ -14,7 +14,7 @@
     "guide": "node core/cli.ts",
     "station": "node station/main.ts",
     "e2e": "python3 ui/test/e2e.py && python3 app/test/app_e2e.py",
-    "app": "electron app/main.mjs"
+    "app": "node node_modules/electron/install.js && electron app/main.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -6,8 +6,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg xvfb
@@ -15,7 +15,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       # The TV screen in a real browser against a real station and real video.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install -q playwright==1.63.0 && python -m playwright install --with-deps chromium
