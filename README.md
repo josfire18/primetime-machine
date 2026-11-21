@@ -39,7 +39,13 @@ Early. The core works and is tested on real video files:
   full-screen; plays H.264/AAC MP4, which most libraries are. Asks for your folders on
   first run. Tested on real H.264 video in the real app window (`app/test/app_e2e.py`).
 
-Next: installers, LAN streaming to Roku, then more sources. See [docs/PLAN.md](docs/PLAN.md).
+- `roku/`: the Roku channel. A thin client of the station on your home network: the
+  native Roku program grid, channel surfing with the remote, the info bar, playing the
+  station's files directly. Compiled and validated with BrighterScript, its clock logic
+  unit-tested in a BrightScript interpreter, but **not yet tried on a real Roku**.
+
+Next: try the Roku channel on a real TV, installers, then more sources. See
+[docs/PLAN.md](docs/PLAN.md).
 
 ## Try it
 
@@ -78,6 +84,22 @@ machine can reach it. Either way the station only answers requests that name it 
 or a home-network name (`.local`, `.lan`, Tailscale's `.ts.net`, this computer's name), which
 keeps websites you visit from reading it through DNS rebinding.
 `npm run guide -- /path` prints the next few hours instead of opening the screen.
+
+## Roku
+
+1. In the desktop app, turn on File > Share with other screens at home, and note an address
+   from File > Addresses for other screens (like `192.168.1.20:8420`).
+2. Put the Roku in developer mode: on the remote press Home 3×, Up 2×, Right, Left, Right,
+   Left, Right, and follow the steps (it gives the Roku's address and asks for a password).
+3. `npm run roku` builds `build/primetime-machine-roku.zip`. Open the Roku's address in a
+   browser, sign in, and upload the zip.
+4. Start the channel and enter the station's address. It remembers it, and the channel you
+   were on.
+
+On the remote: Up/Down change channel, OK opens the guide (OK again watches what's
+selected), Back closes it, ✱ shows what's on. The Roku plays the station's files directly,
+so they need to be formats it plays (H.264/AAC MP4 is the safe choice); converting the
+rest on the fly (HLS via ffmpeg) is planned.
 
 ## License
 

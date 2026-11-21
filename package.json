@@ -9,16 +9,22 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test core/test/*.test.ts station/test/*.test.ts",
+    "test": "node --test core/test/*.test.ts station/test/*.test.ts && brs roku/source/schedule.brs roku-test/schedule_test.brs",
     "typecheck": "tsc -p .",
     "guide": "node core/cli.ts",
     "station": "node station/main.ts",
     "e2e": "python3 ui/test/e2e.py && python3 app/test/app_e2e.py",
-    "app": "node node_modules/electron/install.js && electron app/main.mjs"
+    "app": "node node_modules/electron/install.js && electron app/main.mjs",
+    "roku": "bsc"
   },
   "devDependencies": {
+    "@rokucommunity/brs": "^0.47.6",
     "@types/node": "^22.0.0",
+    "brighterscript": "^0.73.8",
     "electron": "^45.4.1",
     "typescript": "^7.0.0"
+  },
+  "overrides": {
+    "decode-uri-component": "0.5.1"
   }
 }

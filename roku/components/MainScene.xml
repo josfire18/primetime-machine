@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The TV: full-screen picture, the program guide (Roku's TimeGrid), the info bar, the
+     on-screen channel number, and the cards for breaks and "no signal". -->
+<component name="MainScene" extends="Scene">
+  <script type="text/brightscript" uri="pkg:/source/schedule.brs" />
+  <script type="text/brightscript" uri="MainScene.brs" />
+  <children>
+    <Video id="tv" width="1920" height="1080" enableUI="false" />
+
+    <Rectangle id="card" width="1920" height="1080" color="0x0B1A5CFF" visible="false">
+      <Label id="cardTitle" width="1920" height="120" translation="[0,420]" horizAlign="center"
+             font="font:LargeBoldSystemFont" color="0xF4F6FFFF" />
+      <Label id="cardSub" width="1920" height="60" translation="[0,560]" horizAlign="center"
+             font="font:MediumSystemFont" color="0xA9B6E8FF" />
+    </Rectangle>
+
+    <Label id="osd" width="400" height="120" translation="[1420,50]" horizAlign="right"
+           font="font:LargeBoldSystemFont" color="0x47FF6BFF" visible="false" />
+
+    <Rectangle id="infobar" width="1760" height="190" translation="[80,840]" color="0x173392F0" visible="false">
+      <Label id="ibNum" width="200" height="70" translation="[30,30]" horizAlign="center"
+             font="font:LargeBoldSystemFont" color="0xF2C94CFF" />
+      <Label id="ibName" width="200" height="40" translation="[30,110]" horizAlign="center"
+             font="font:SmallSystemFont" color="0xA9B6E8FF" />
+      <Label id="ibTitle" width="1100" height="60" translation="[280,30]"
+             font="font:MediumBoldSystemFont" color="0xF4F6FFFF" />
+      <Label id="ibMeta" width="1100" height="40" translation="[280,95]"
+             font="font:SmallSystemFont" color="0xA9B6E8FF" />
+      <Rectangle id="ibTrack" width="1100" height="8" translation="[280,150]" color="0xFFFFFF26">
+        <Rectangle id="ibBar" width="0" height="8" color="0xF2C94CFF" />
+      </Rectangle>
+      <Label id="ibClock" width="300" height="60" translation="[1430,30]" horizAlign="right"
+             font="font:MediumBoldSystemFont" color="0xF4F6FFFF" />
+      <Label id="ibNext" width="300" height="80" translation="[1430,95]" horizAlign="right" wrap="true"
+             font="font:SmallSystemFont" color="0xA9B6E8FF" />
+    </Rectangle>
+
+    <Rectangle id="guide" width="1920" height="1080" color="0x0B1A5CFF" visible="false">
+      <Label id="gTitle" width="1500" height="70" translation="[100,60]"
+             font="font:LargeBoldSystemFont" color="0xF4F6FFFF" />
+      <Label id="gMeta" width="1500" height="50" translation="[100,140]"
+             font="font:MediumSystemFont" color="0xA9B6E8FF" />
+      <TimeGrid id="grid" translation="[100,230]" maxDays="1" numRows="6" fillProgramGaps="true"
+                showPastTimeScreen="false" />
+    </Rectangle>
+
+    <Timer id="tick" repeat="true" duration="0.5" />
+    <Timer id="osdTimer" duration="3" />
+    <Timer id="infoTimer" duration="5" />
+  </children>
+</component>

@@ -1,0 +1,9 @@
+{
+  "rootDir": "roku",
+  "files": ["manifest", "source/**/*", "components/**/*", "images/**/*"],
+  "stagingDir": "build/roku-staging",
+  "retainStagingDir": false,
+  "createPackage": true,
+  "outFile": "build/primetime-machine-roku.zip",
+  "diagnosticLevel": "warn"
+}
