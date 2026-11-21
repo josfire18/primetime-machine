@@ -82,7 +82,8 @@ export async function liveStart(item: MediaItem, d: Delivery, atSec: number): Pr
 export function liveArgs(file: string, startSec: number, d: Extract<Delivery, { mode: "live" }>): string[] {
   const video = d.video === "copy"
     ? ["-c:v", "copy"]
-    : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-g", "48"];
+    : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-g", "48",
+       "-profile:v", "high", "-level:v", "4.0"];
   const audio = d.audio === "none" ? ["-an"] : d.audio === "copy" ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k", "-ac", "2"];
   // Seek fast to a little before the start, then cut exactly on the output side. A fast seek
   // alone keeps the frames before the seek point (at negative timestamps), and a fragmented
@@ -94,6 +95,38 @@ export function liveArgs(file: string, startSec: number, d: Extract<Delivery, { 
     ...video, ...audio, "-sn", "-dn",
     "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
   ];
+}
+
+/**
+ * The MIME type with codecs of a live stream, for the screen's MediaSource. A copied H.264
+ * stream is described from its probed profile and level; a re-encode is always High@4.0
+ * (liveArgs sets it).
+ */
+export function liveMime(item: MediaItem, d: Extract<Delivery, { mode: "live" }>): string {
+  const m = item.media ?? {};
+  let video: string;
+  if (d.video === "h264") video = "avc1.640028";
+  else if (m.video === "h264") video = avcCodec(m.videoProfile, m.videoLevel);
+  else if (m.video === "vp9") video = "vp09.00.40.08";
+  else if (m.video === "av1") video = "av01.0.08M.08";
+  else video = "avc1.640028";
+  const audio = d.audio === "none" ? null
+    : d.audio === "aac" || m.audio === "aac" ? "mp4a.40.2"
+    : m.audio === "mp3" ? "mp4a.40.34"
+    : m.audio === "opus" ? "opus" : "mp4a.40.2";
+  return `video/mp4; codecs="${audio ? `${video}, ${audio}` : video}"`;
+}
+
+const AVC_PROFILES: Record<string, string> = {
+  "constrained baseline": "42E0", baseline: "4200", main: "4D00", extended: "5800",
+  high: "6400", "high 10": "6E00", "high 4:2:2": "7A00", "high 4:4:4 predictive": "F400",
+};
+
+/** "avc1.PPCCLL" from ffprobe's profile name and level (31 -> 1F). Unknowns: High@4.0. */
+export function avcCodec(profile?: string, level?: number): string {
+  const pc = AVC_PROFILES[(profile ?? "").toLowerCase()] ?? "6400";
+  const lv = level && level > 0 && level < 256 ? level.toString(16).toUpperCase().padStart(2, "0") : "28";
+  return `avc1.${pc}${lv}`;
 }
 
 /** Start ffmpeg for a live stream; the caller pipes stdout and kills it when the screen leaves. */

@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Block, ChannelRule, MediaItem, Segment } from "../core/src/model.ts";
 import { adsFor, DAY_MS, dayBlocks, dayStart, programsFor } from "../core/src/schedule.ts";
-import { type Delivery, delivery, liveStart, spawnLive } from "./compat.ts";
+import { type Delivery, delivery, liveMime, liveStart, spawnLive } from "./compat.ts";
 import { type Library, mediaKey } from "./library.ts";
 import { allowedHost, hostOf } from "./net.ts";
 
@@ -204,7 +204,8 @@ export function createStation(lib: Library): Server {
       const at = Number(url.searchParams.get("at") ?? 0);
       if (!Number.isFinite(at) || at < 0) throw new HttpError(400, "at must be seconds");
       const start = await liveStart(item, d, at);
-      return json(res, { start, src: `/media/${mediaKey(item)}/live?start=${start}`, video: d.video, audio: d.audio });
+      return json(res, { start, src: `/media/${mediaKey(item)}/live?start=${start}`, mime: liveMime(item, d),
+                         video: d.video, audio: d.audio });
     }
     if (get && /^\/media\/[a-z0-9]+\/live$/.test(path)) {
       const [item, d] = liveItem(path.split("/")[2]);

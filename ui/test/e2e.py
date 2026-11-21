@@ -104,14 +104,16 @@ def run(base: str, shots: str | None) -> int:
               const s = window.ptm.current, v = document.getElementById('tv');
               if (!s) return { seg: null };
               const now = Date.now();
+              const f = window.ptm.feed;
+              const src = f && v.getAttribute('src') && v.getAttribute('src').startsWith('blob:') ? f.url : v.getAttribute('src');
               return { seg: { role: s.role, src: s.src, start: s.start, end: s.end, live: s.live }, inSeg: now >= s.start && now < s.end,
                        expected: s.fromSec + (now - s.start) / 1000, at: v.currentTime + window.ptm.base, paused: v.paused,
-                       src: v.getAttribute('src'), card: !document.getElementById('card').hidden,
+                       src, feed: !!f, card: !document.getElementById('card').hidden,
                        channel: window.ptm.channels[window.ptm.index].id };
             }""")
 
-        def assert_live(where):
-            deadline = time.time() + 6
+        def assert_live(where, wait=6):
+            deadline = time.time() + wait
             while True:
                 s = live()
                 playing = s["seg"] and s["seg"]["src"] and (
@@ -183,12 +185,12 @@ def run(base: str, shots: str | None) -> int:
         page.keyboard.press("0")
         page.wait_for_function("window.ptm.channels[window.ptm.index].id === '00s'", timeout=4000)
         page.wait_for_function("window.ptm.current && window.ptm.current.role === 'program'", timeout=70000)
-        s = assert_live("an MKV through the station")
+        s = assert_live("an MKV through the station", wait=15)     # may catch up first
         assert s["seg"]["live"] and "/live?" in s["src"], s
         live_seen, worst = 0, 0.0
         until = time.time() + 12
         while time.time() < until:
-            s = assert_live("an MKV, riding the clock")
+            s = assert_live("an MKV, riding the clock", wait=15)
             if s["seg"]["live"] and s["src"]:
                 live_seen += 1
                 worst = max(worst, abs(s["at"] - s["expected"]))

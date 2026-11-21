@@ -70,17 +70,22 @@ export function parsePath(rel: string): Parsed {
 /** Duration (seconds) and the first video and audio codecs, from one ffprobe run. */
 export async function probe(file: string): Promise<{ durationSec: number; media: MediaInfo }> {
   const { stdout } = await run("ffprobe", [
-    "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name", "-of", "json", file,
+    "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,profile,level", "-of", "json", file,
   ]);
-  const j = JSON.parse(stdout) as { format?: { duration?: string }; streams?: { codec_type?: string; codec_name?: string }[] };
+  const j = JSON.parse(stdout) as {
+    format?: { duration?: string };
+    streams?: { codec_type?: string; codec_name?: string; profile?: string; level?: number }[];
+  };
   const d = Number(j.format?.duration);
   if (!Number.isFinite(d) || d <= 0) throw new Error(`no duration for ${file}`);
-  const first = (type: string) => j.streams?.find((s) => s.codec_type === type && s.codec_name)?.codec_name;
+  const first = (type: string) => j.streams?.find((s) => s.codec_type === type && s.codec_name);
   const media: MediaInfo = {};
   const video = first("video");
   const audio = first("audio");
-  if (video) media.video = video;
-  if (audio) media.audio = audio;
+  if (video?.codec_name) media.video = video.codec_name;
+  if (video?.profile) media.videoProfile = video.profile;
+  if (typeof video?.level === "number" && video.level > 0) media.videoLevel = video.level;
+  if (audio?.codec_name) media.audio = audio.codec_name;
   return { durationSec: d, media };
 }
 
@@ -133,7 +138,8 @@ export class LocalFolder implements Source {
       seen.add(file);
       let rec = this.cache[file];
       const changed = !rec || rec.mtimeMs !== st.mtimeMs || rec.size !== st.size;
-      if (changed || !rec.media) {
+      // (a record from before codecs, or before profile/level, is probed once more)
+      if (changed || !rec.media || (rec.media.video === "h264" && rec.media.videoProfile === undefined)) {
         let p: Awaited<ReturnType<typeof probe>>;
         try {
           p = await probe(file);

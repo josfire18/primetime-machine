@@ -56,15 +56,30 @@ after(() => close());
 const item = (title: string) => lib.items.find((m) => m.title === title)!;
 
 test("codecs are probed, and decide direct play or ffmpeg", () => {
-  assert.deepEqual(item("Plain").media, { video: "h264", audio: "aac" });
-  assert.deepEqual(item("Rip").media, { video: "h264", audio: "ac3" });
-  assert.deepEqual(item("Newer").media, { video: "hevc", audio: "aac" });
+  const lvl = item("Rip").media!.videoLevel!;
+  assert.ok(Number.isInteger(lvl) && lvl > 0, String(lvl));
+  assert.deepEqual(item("Plain").media, { video: "h264", videoProfile: "Constrained Baseline", videoLevel: lvl, audio: "aac" });
+  assert.deepEqual(item("Rip").media, { video: "h264", videoProfile: "Constrained Baseline", videoLevel: lvl, audio: "ac3" });
+  assert.equal(item("Newer").media!.video, "hevc");
   assert.deepEqual(delivery(item("Plain")), { mode: "direct" });
   assert.deepEqual(delivery(item("Rip")), { mode: "live", video: "copy", audio: "aac" });
   assert.deepEqual(delivery(item("Newer")), { mode: "live", video: "h264", audio: "copy" });
   assert.deepEqual(delivery(item("Web")), { mode: "live", video: "copy", audio: "copy" });
   // unknown codecs (an old cache entry) go through ffmpeg rather than fail on screen
   assert.equal(delivery({ ...item("Plain"), media: undefined }).mode, "live");
+});
+
+test("the screen is told exactly what a live stream holds", async () => {
+  const { avcCodec, liveMime } = await import("../compat.ts");
+  assert.equal(avcCodec("High", 31), "avc1.64001F");
+  assert.equal(avcCodec("Constrained Baseline", 11), "avc1.42E00B");
+  assert.equal(avcCodec(undefined, undefined), "avc1.640028");
+  const rip = `avc1.42E0${item("Rip").media!.videoLevel!.toString(16).toUpperCase().padStart(2, "0")}`;
+  assert.equal(liveMime(item("Rip"), delivery(item("Rip")) as never), `video/mp4; codecs="${rip}, mp4a.40.2"`);
+  assert.equal(liveMime(item("Newer"), delivery(item("Newer")) as never), 'video/mp4; codecs="avc1.640028, mp4a.40.2"');
+  assert.equal(liveMime(item("Web"), delivery(item("Web")) as never), 'video/mp4; codecs="vp09.00.40.08, opus"');
+  const r = await (await fetch(`${base}/api/live?key=${mediaKey(item("Rip"))}&at=3`)).json();
+  assert.equal(r.mime, `video/mp4; codecs="${rip}, mp4a.40.2"`);
 });
 
 test("a copied stream starts on the keyframe at or before the wanted second", async () => {

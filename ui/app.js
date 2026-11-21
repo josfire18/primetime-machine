@@ -19,6 +19,7 @@ const state = {
   current: null,          // the segment on screen
   base: 0,                // seconds into the file where the loaded media starts (live streams)
   stream: { seg: null, url: "", base: 0, at: 0 },   // the live stream in use, if any
+  feed: null,             // its MediaSource feed
   token: 0,               // bumps on every tune, so a slow fetch can't play the wrong channel
   dial: "",
   dialTimer: 0,
@@ -119,6 +120,102 @@ function updateInfo() {
   $("ib-progress").style.width = `${pct}%`;
 }
 
+// ---------------------------------------------------------------- live feeds
+// A stream the station converts with ffmpeg arrives through MediaSource: fetched as fast as
+// the station makes it, so the picture can start right on the clock's second (a plain
+// <video src> reads an endless stream only a couple of seconds ahead, so a late start could
+// never catch up). Reading pauses READ_AHEAD_SEC past what's playing, which also pauses
+// ffmpeg, and what has played is trimmed, so memory stays small for a whole episode.
+const READ_AHEAD_SEC = 90;
+const KEEP_BEHIND_SEC = 20;
+
+class LiveFeed {
+  constructor(url, mime) {
+    this.url = url;
+    this.mime = mime;
+    this.abort = new AbortController();
+    this.stopped = false;
+  }
+
+  static supported(mime) {
+    return typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(mime);
+  }
+
+  /** Point the video at this feed; resolves once it knows what it's playing (or failed). */
+  attach(video) {
+    this.video = video;
+    this.source = new MediaSource();
+    video.src = URL.createObjectURL(this.source);
+    return new Promise((resolve) => {
+      const done = () => { video.removeEventListener("loadedmetadata", done); video.removeEventListener("error", done); resolve(); };
+      video.addEventListener("loadedmetadata", done);
+      video.addEventListener("error", done);
+      this.source.addEventListener("sourceopen", () => this.pump().catch(() => { if (!this.stopped) done(); }), { once: true });
+    });
+  }
+
+  stop() {
+    this.stopped = true;
+    this.abort.abort();
+    if (this.video?.src.startsWith("blob:")) URL.revokeObjectURL(this.video.src);
+  }
+
+  ahead() {
+    const v = this.video;
+    const b = v.buffered;
+    return b.length ? b.end(b.length - 1) - v.currentTime : 0;
+  }
+
+  async append(chunk) {
+    const sb = this.buffer;
+    for (let attempt = 0; ; attempt++) {
+      await this.idle();
+      try {
+        sb.appendBuffer(chunk);
+        return this.idle();
+      } catch (e) {
+        if (e.name !== "QuotaExceededError" || attempt > 2) throw e;
+        await this.trim(true);               // full: drop what has played, then try again
+      }
+    }
+  }
+
+  idle() {
+    const sb = this.buffer;
+    return sb.updating ? new Promise((r) => sb.addEventListener("updateend", r, { once: true })) : Promise.resolve();
+  }
+
+  async trim(hard = false) {
+    const v = this.video;
+    const b = this.buffer.buffered;
+    const cut = v.currentTime - (hard ? 2 : KEEP_BEHIND_SEC);
+    if (b.length && b.start(0) < cut - 1) {
+      await this.idle();
+      this.buffer.remove(b.start(0), cut);
+      await this.idle();
+    }
+  }
+
+  async pump() {
+    this.buffer = this.source.addSourceBuffer(this.mime);
+    const res = await fetch(this.url, { signal: this.abort.signal });
+    if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
+    const reader = res.body.getReader();
+    for (;;) {
+      while (!this.stopped && this.ahead() > READ_AHEAD_SEC) await new Promise((r) => setTimeout(r, 500));
+      if (this.stopped) return;
+      const { value, done } = await reader.read();
+      if (done || this.stopped) break;
+      await this.append(value);
+      await this.trim();
+    }
+    if (!this.stopped && this.source.readyState === "open") {
+      await this.idle();
+      this.source.endOfStream();
+    }
+  }
+}
+
 // ---------------------------------------------------------------- playback
 async function loadPlayout(ch, at) {
   const p = await api(`/api/playout?channel=${encodeURIComponent(ch.id)}&from=${at}&to=${at + PLAYOUT_AHEAD}`);
@@ -138,7 +235,9 @@ async function tune(index) {
   osd(String(ch.number));
   state.current = null;
   state.playout = null;
+  state.stream = { seg: null, url: "", base: 0, at: 0 };
   tv.pause();
+  stopFeed();
   try {
     const p = await loadPlayout(ch, Date.now());
     if (token !== state.token) return;
@@ -179,30 +278,39 @@ async function playNow(token, force = false) {
   const at = seg.fromSec + (now - seg.start) / 1000;
   // Files the screen can't play as-is come as a live stream from the station, which starts
   // at `base` seconds into the file (a keyframe when the video is copied).
-  let url = seg.src;
   let base = 0;
+  const loaded = () => new Promise((res) => {
+    const done = () => { tv.removeEventListener("loadedmetadata", done); tv.removeEventListener("error", done); res(); };
+    tv.addEventListener("loadedmetadata", done);
+    tv.addEventListener("error", done);
+  });
   if (seg.live) {
     if (state.stream.seg === seg && !force) {
-      ({ url, base } = state.stream);
+      base = state.stream.base;
     } else {
+      let r;
       try {
-        const r = await api(`/api/live?key=${encodeURIComponent(seg.src.split("/")[2])}&at=${at.toFixed(3)}`);
-        url = r.src;
-        base = r.start;
+        r = await api(`/api/live?key=${encodeURIComponent(seg.src.split("/")[2])}&at=${at.toFixed(3)}`);
       } catch {
         return card("No signal", "The station couldn't convert this file");
       }
       if (token !== state.token) return;
-      state.stream = { seg, url, base, at: Date.now() };
+      base = r.start;
+      stopFeed();
+      state.stream = { seg, url: r.src, base, at: Date.now() };
+      if (LiveFeed.supported(r.mime)) {
+        state.feed = new LiveFeed(r.src, r.mime);
+        await state.feed.attach(tv);
+      } else {
+        tv.src = r.src;                    // no MediaSource for this: plain streaming
+        await loaded();
+      }
+      if (token !== state.token) return;
     }
-  }
-  if (tv.getAttribute("src") !== url) {
-    tv.src = url;
-    await new Promise((res) => {
-      const done = () => { tv.removeEventListener("loadedmetadata", done); tv.removeEventListener("error", done); res(); };
-      tv.addEventListener("loadedmetadata", done);
-      tv.addEventListener("error", done);
-    });
+  } else if (tv.getAttribute("src") !== seg.src) {
+    stopFeed();
+    tv.src = seg.src;
+    await loaded();
     if (token !== state.token) return;
   }
   if (tv.error) return card("No signal", "This file can't be played here");
@@ -216,6 +324,11 @@ async function playNow(token, force = false) {
     // A browser that wants a key press before sound says so; the app never does.
     if (e?.name === "NotAllowedError") $("power").hidden = false;
   }
+}
+
+function stopFeed() {
+  state.feed?.stop();
+  state.feed = null;
 }
 
 /** A live stream can only seek inside what has arrived: wait for it (briefly), then seek. */

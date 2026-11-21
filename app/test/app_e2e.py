@@ -122,32 +122,51 @@ def drive(cdp: int) -> int:
         assert s["err"] is None, f"media error {s['err']}: H.264 didn't decode"
         assert s["w"] == 320 and not s["paused"], s
         assert s["role"] != "program" or abs(s["at"] - s["expected"]) < 1.5, s
-        # an MKV with AC3 sound: the station copies the H.264 and converts the sound, live
+        # an MKV with AC3 sound: the station copies the H.264 and converts the sound, live.
+        # The station's answer is held up 2.5 s, as on a slow machine (GitHub's runners), so
+        # the stream joins late and has to catch up with the clock.
+        def slow(route):
+            time.sleep(2.5)
+            route.continue_()
+        page.route("**/api/live*", slow)
         page.evaluate("document.getElementById('tv').focus()")
         page.keyboard.press("ArrowUp")
         page.wait_for_function("window.ptm.channels[window.ptm.index].id === '00s'", timeout=5000)
         page.wait_for_function("window.ptm.current && window.ptm.current.role === 'program'", timeout=70000)
         probe = """() => { const v = document.getElementById('tv'), s = window.ptm.current;
           const b = [...Array(v.buffered.length).keys()].map((i) => [v.buffered.start(i).toFixed(1), v.buffered.end(i).toFixed(1)]);
-          return { src: v.getAttribute('src'), w: v.videoWidth, paused: v.paused, err: v.error && v.error.code,
+          const f = window.ptm.feed;
+          return { src: f && v.getAttribute('src').startsWith('blob:') ? f.url : v.getAttribute('src'),
+                   w: v.videoWidth, paused: v.paused, err: v.error && v.error.code,
                    at: v.currentTime + window.ptm.base, expected: s.fromSec + (Date.now() - s.start) / 1000,
-                   live: s.live, role: s.role, buffered: b, ready: v.readyState }; }"""
+                   live: s.live, role: s.role, buffered: b, ready: v.readyState, feed: !!f }; }"""
         # wait for the converted stream to be on screen, then it must hold the clock
         on = time.time() + 15
         while True:
             r = page.evaluate(probe)
-            if r["role"] == "program" and r["src"] and "/live?" in r["src"] and not r["paused"]:
+            if r["role"] == "program" and r["src"] and "/live?" in r["src"] and r["feed"] and not r["paused"]:
                 break
             assert time.time() < on, f"the converted stream never started: {r}"
             time.sleep(0.25)
+        # a converted stream may join a little late (it arrives about as fast as it plays), so
+        # it catches up by playing faster: within a few seconds it is on the clock, and stays
+        first = r["expected"] - r["at"]
+        assert first > 1.5, f"the slow station should have made it join late: {r}"
+        caught = time.time() + 12
+        while True:
+            r = page.evaluate(probe)
+            if r["role"] != "program" or abs(r["at"] - r["expected"]) < 0.75:
+                break
+            assert time.time() < caught, f"never caught up with the clock: {r}"
+            time.sleep(0.5)
         worst = 0.0
-        for _ in range(8):
+        for _ in range(5):
             r = page.evaluate(probe)
             if r["role"] == "program" and "/live?" in (r["src"] or ""):
                 worst = max(worst, abs(r["at"] - r["expected"]))
             time.sleep(1)
-        print(f"MKV + AC3 via the station: at most {worst:.2f}s off the clock; last: {r}")
-        assert worst < 1.5, worst
+        print(f"MKV + AC3 via the station: joined {first:.2f}s off, then at most {worst:.2f}s off the clock")
+        assert worst < 1.0, worst
         assert r["err"] is None and r["w"] == 320, r
         page.keyboard.press("g")
         page.wait_for_selector("#guide:not([hidden]) .g-cell.sel")

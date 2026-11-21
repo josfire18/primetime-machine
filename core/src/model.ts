@@ -31,6 +31,10 @@ export interface MediaInfo {
   /** ffprobe's codec names, e.g. "h264", "hevc", "vp9"; "aac", "ac3", "dts", "opus". */
   video?: string;
   audio?: string;
+  /** The video's profile and level as ffprobe reports them ("High", 31): a player needs them
+   *  to be told exactly what a copied stream holds. */
+  videoProfile?: string;
+  videoLevel?: number;
 }
 
 export interface ChannelRule {
