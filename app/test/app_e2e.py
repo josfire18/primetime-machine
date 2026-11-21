@@ -125,7 +125,10 @@ def drive(cdp: int) -> int:
         # an MKV with AC3 sound: the station copies the H.264 and converts the sound, live.
         # The station's answer is held up 2.5 s, as on a slow machine (GitHub's runners), so
         # the stream joins late and has to catch up with the clock.
+        held = []
+
         def slow(route):
+            held.append(route.request.url)
             time.sleep(2.5)
             route.continue_()
         page.route("**/api/live*", slow)
@@ -150,8 +153,10 @@ def drive(cdp: int) -> int:
             time.sleep(0.25)
         # a converted stream may join a little late (it arrives about as fast as it plays), so
         # it catches up by playing faster: within a few seconds it is on the clock, and stays
+        # (how late it was by the first sample depends on the machine: on a fast one it has
+        # already jumped to the clock; the point is that the slow answer really happened)
+        assert held, "the station's answer was never held up: the test didn't exercise a late join"
         first = r["expected"] - r["at"]
-        assert first > 1.5, f"the slow station should have made it join late: {r}"
         caught = time.time() + 12
         while True:
             r = page.evaluate(probe)
