@@ -90,7 +90,8 @@ def run(base: str, shots: str | None) -> int:
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(base)
         page.wait_for_function("window.ptm && window.ptm.playout")
-        page.keyboard.press("Enter")             # power on (the browser wants a key press)
+        # launched with autoplay allowed, so no "press a key" splash: it just plays
+        assert not page.is_visible("#power"), "power splash shown although playback is allowed"
 
         def live():
             """What is on screen vs. what the clock says should be."""
