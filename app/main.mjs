@@ -132,7 +132,8 @@ function buildMenu() {
     {
       label: "Edit",
       submenu: [
-        { label: "Commercial breaks…", accelerator: "CmdOrCtrl+E", enabled: Boolean(origin), click: () => openEditor() },
+        { label: "Channels…", accelerator: "CmdOrCtrl+L", enabled: Boolean(origin), click: () => openTool("channels") },
+        { label: "Commercial breaks…", accelerator: "CmdOrCtrl+E", enabled: Boolean(origin), click: () => openTool("editor") },
         { type: "separator" },
         { role: "undo" }, { role: "redo" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" },
       ],
@@ -141,21 +142,26 @@ function buildMenu() {
   ]));
 }
 
-/** The break editor, in a window of its own beside the TV (one at a time). */
-let editor = null;
-function openEditor() {
-  if (editor && !editor.isDestroyed()) return editor.focus();
-  editor = new BrowserWindow({
-    width: 1200, height: 820, backgroundColor: "#070d33", title: "Commercial breaks · Primetime Machine",
+/** The station's tools (the break editor, the lineup editor), each in a window of its own
+ *  beside the TV, one of each at a time. */
+const TOOLS = { editor: "Commercial breaks", channels: "Channels" };
+const tools = {};
+function openTool(name) {
+  const open = tools[name];
+  if (open && !open.isDestroyed()) return open.focus();
+  const page = `${origin}/${name}.html`;
+  const w = new BrowserWindow({
+    width: 1200, height: 820, backgroundColor: "#070d33", title: `${TOOLS[name]} · Primetime Machine`,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
-  editor.setMenuBarVisibility(false);
-  editor.webContents.on("will-navigate", (e, url) => {
+  w.setMenuBarVisibility(false);
+  w.webContents.on("will-navigate", (e, url) => {
     if (!url.startsWith(origin)) { e.preventDefault(); shell.openExternal(url); }
-    else if (!url.startsWith(`${origin}/editor.html`)) { e.preventDefault(); win?.focus(); }   // "Back to TV"
+    else if (!url.startsWith(page)) { e.preventDefault(); win?.focus(); }   // "Back to TV"
   });
-  editor.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
-  void editor.loadURL(`${origin}/editor.html`);
+  w.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  tools[name] = w;
+  void w.loadURL(page);
 }
 
 async function main() {
@@ -176,7 +182,8 @@ async function main() {
     if (!url.startsWith(origin)) { e.preventDefault(); shell.openExternal(url); }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(`${origin}/editor.html`)) openEditor();     // E on the TV
+    const tool = Object.keys(TOOLS).find((t) => url.startsWith(`${origin}/${t}.html`));
+    if (tool) openTool(tool);                                    // E or C on the TV
     else shell.openExternal(url);
     return { action: "deny" };
   });

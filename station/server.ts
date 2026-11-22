@@ -15,6 +15,11 @@
 //   PUT  /api/episodes/<key>/breaks          set them by hand: {"breaksSec": [...]}
 //   DELETE /api/episodes/<key>/breaks        hand them back to detection
 //   GET  /editor.html                        the break editor
+//   GET  /api/lineup                         the channels in full, and the library's shows
+//   POST /api/lineup/preview                 what a channel would air: {"channel": {...}}
+//   PUT  /api/lineup                         replace the lineup: {"channels": [...]}
+//   DELETE /api/lineup                       back to one channel per decade
+//   GET  /channels.html                      the lineup editor
 //   GET  /                                   the TV screen (ui/)
 //
 // It listens on 127.0.0.1 unless told otherwise: nothing is exposed beyond this machine by default.
@@ -30,8 +35,9 @@ import { fileURLToPath } from "node:url";
 
 import type { Block, ChannelRule, MediaItem, Segment } from "../core/src/model.ts";
 import { adsFor, DAY_MS, dayBlocks, dayStart, programsFor } from "../core/src/schedule.ts";
+import { hash } from "../core/src/rng.ts";
 import { type Delivery, delivery, liveMime, liveStart, spawnLive } from "./compat.ts";
-import { type Library, mediaKey } from "./library.ts";
+import { cleanChannel, type Library, mediaKey } from "./library.ts";
 import { allowedHost, hostOf } from "./net.ts";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
@@ -63,7 +69,7 @@ class DayCache {
   }
 
   blocks(rule: ChannelRule, day: number): Block[] {
-    const key = `${this.lib.scannedAt}|${rule.id}|${day}|${this.lib.breaksKey(day)}`;
+    const key = `${this.lib.scannedAt}|${hash(JSON.stringify(rule))}|${rule.id}|${day}|${this.lib.breaksKey(day)}`;
     let b = this.days.get(key);
     if (!b) {
       const items = this.lib.itemsForDay(day);
@@ -204,7 +210,7 @@ export function createStation(lib: Library): Server {
 
     if (get && path === "/api/channels") {
       return json(res, {
-        scannedAt: lib.scannedAt, items: lib.items.length,
+        scannedAt: lib.scannedAt, items: lib.items.length, lineupAt: lib.lineupAt,
         channels: lib.channels.map((c) => ({ id: c.id, number: c.number, name: c.name, years: c.years })),
       });
     }
@@ -234,6 +240,29 @@ export function createStation(lib: Library): Server {
         const item = lib.item(e.key)!;
         return { ...e, delivery: delivery(item).mode };
       }) });
+    }
+    if (get && path === "/api/lineup") {
+      return json(res, { auto: lib.autoChannels, lineupAt: lib.lineupAt, channels: lib.channels, catalog: lib.catalog() });
+    }
+    if (req.method === "POST" && path === "/api/lineup/preview") {
+      const body = (await readJson(req)) as { channel?: unknown };
+      try {
+        return json(res, lib.preview(cleanChannel(body?.channel)));
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+    if (path === "/api/lineup" && (req.method === "PUT" || req.method === "DELETE")) {
+      checkOwnMachine(req);
+      const body = req.method === "PUT" ? (await readJson(req)) as { channels?: unknown } : null;
+      if (body !== null && !Array.isArray(body?.channels)) throw new HttpError(400, "send {\"channels\": [...]}");
+      try {
+        const channels = await lib.setChannels(body === null ? null : body.channels);
+        return json(res, { auto: lib.autoChannels, lineupAt: lib.lineupAt, channels });
+      } catch (e) {
+        if (e instanceof Error && /^channels?\b/.test(e.message)) throw new HttpError(400, e.message);
+        throw e;
+      }
     }
     const edit = /^\/api\/episodes\/([a-z0-9]+)\/breaks$/.exec(path);
     if (edit && (req.method === "PUT" || req.method === "DELETE")) {

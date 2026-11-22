@@ -3,7 +3,9 @@
 // clock four times a second, so it stays live through ad breaks, slow files and sleep.
 //
 // Remote:  ▲▼ / PgUp PgDn  channel     0-9  dial a number     OK / G  guide     I  info
-//          M  mute     F  full screen     E  commercial break editor     Esc  close the guide
+//          M  mute     F  full screen     E  commercial break editor     C  channel lineup
+//          Esc  close the guide
+// A lineup changed in the editor reaches the screen within a minute, on the channel it was on.
 
 const $ = (id) => document.getElementById(id);
 const tv = $("tv");
@@ -11,6 +13,7 @@ const SLOT_MS = 30 * 60_000;
 const GUIDE_SPAN = 3 * 60 * 60_000;
 const PLAYOUT_AHEAD = 90 * 60_000;
 const DRIFT_SEC = 1.5;
+const LINEUP_CHECK_MS = Number(new URLSearchParams(location.search).get("lineupCheckMs")) || 60_000;
 
 const state = {
   channels: [],
@@ -505,6 +508,7 @@ document.addEventListener("keydown", async (e) => {
   else if (k === "i" || k === "I" || k === " ") showInfo();
   else if (k === "m" || k === "M") { tv.muted = !tv.muted; osd(tv.muted ? "MUTE" : String(channel()?.number ?? "")); }
   else if (k === "e" || k === "E") window.open("/editor.html", "ptm-editor");   // the break editor, beside the TV
+  else if (k === "c" || k === "C") window.open("/channels.html", "ptm-channels"); // the lineup editor
   else if (k === "f" || k === "F") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   else return;
   e.preventDefault();
@@ -524,13 +528,17 @@ document.addEventListener("click", async (e) => {
 
 // ---------------------------------------------------------------- start
 async function boot() {
+  let lineup;
   try {
-    state.channels = (await api("/api/channels")).channels;
+    lineup = await api("/api/channels");
+    state.channels = lineup.channels;
   } catch {
     return card("Can't reach the station", "Is Primetime Machine running?");
   }
+  state.lineupAt = lineup.lineupAt;
+  setInterval(() => refreshLineup().catch(() => {}), LINEUP_CHECK_MS);
   if (!state.channels.length) {
-    return card("No channels yet", "Add your video folders to the config, then rescan");
+    return card("No channels yet", "Add your video folders, or a channel in the lineup editor (C)");
   }
   let start = 0;
   try {
@@ -538,8 +546,24 @@ async function boot() {
     start = Math.max(0, state.channels.findIndex((c) => c.id === saved));
   } catch { /* storage off */ }
   await tune(start);
+  state.ticking = true;
   setInterval(tick, 250);
   setInterval(() => { if (state.guide.open) loadGuide(); }, 60_000);
+}
+
+/** Pick up a lineup changed in the editor: same channel if it still exists, else the nearest. */
+async function refreshLineup() {
+  const lineup = await api("/api/channels");
+  if (lineup.lineupAt === state.lineupAt) return;
+  state.lineupAt = lineup.lineupAt;
+  const was = channel();
+  state.channels = lineup.channels;
+  if (!state.channels.length) return card("No channels yet", "Add a channel in the lineup editor (C)");
+  let i = state.channels.findIndex((c) => c.id === was?.id);
+  if (i < 0) i = Math.max(0, state.channels.findIndex((c) => c.number >= (was?.number ?? 0)));
+  if (!state.ticking) { state.ticking = true; setInterval(tick, 250); }   // the first channels ever
+  await tune(i);
+  if (state.guide.open) loadGuide();
 }
 
 window.ptm = state;          // for tests and curious people
