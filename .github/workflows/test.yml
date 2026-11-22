@@ -21,6 +21,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -q playwright==1.63.0 && python -m playwright install --with-deps chromium
       - run: python ui/test/e2e.py
+      # The break editor: detection, editing and saving, on real files.
+      - run: python ui/test/editor_e2e.py
       # The desktop app: Electron plays H.264 from the in-process station.
       - run: python app/test/app_e2e.py
       # The packaged app (what the installers ship) plays too.

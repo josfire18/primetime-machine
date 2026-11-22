@@ -11,10 +11,16 @@
 //                                            for segments marked "live": codecs a screen can't play
 //   GET  /api/breaks                         progress of commercial-break detection
 //   POST /api/rescan                         re-read the config and folders
+//   GET  /api/episodes                       every episode with its breaks (the break editor)
+//   PUT  /api/episodes/<key>/breaks          set them by hand: {"breaksSec": [...]}
+//   DELETE /api/episodes/<key>/breaks        hand them back to detection
+//   GET  /editor.html                        the break editor
 //   GET  /                                   the TV screen (ui/)
 //
 // It listens on 127.0.0.1 unless told otherwise: nothing is exposed beyond this machine by default.
 // Requests must name it by an address or a home-network name (see net.ts: DNS rebinding).
+// Changes (rescan, break edits) are taken only from this machine itself, and never from
+// another site's page: a browser sends any site's form to 127.0.0.1, Host header and all.
 
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -100,6 +106,36 @@ function window(url: URL, max: number): [number, number] {
   if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) throw new HttpError(400, "from/to must be epoch ms with from < to");
   if (to - from > max) throw new HttpError(400, `window too long (max ${max / 3600_000} h)`);
   return [from, to];
+}
+
+const MAX_BODY = 16 * 1024;
+
+/** A change request is allowed only from this machine, and from the station's own pages. */
+function checkOwnMachine(req: IncomingMessage): void {
+  const from = req.socket.remoteAddress ?? "";
+  const local = from === "::1" || from.startsWith("127.") || from.startsWith("::ffff:127.");
+  if (!local) throw new HttpError(403, "changes are made on the station's own computer");
+  const origin = req.headers.origin;
+  if (origin !== undefined && origin !== `http://${req.headers.host}`) throw new HttpError(403, "not from this station's pages");
+  if (req.headers["sec-fetch-site"] && !["same-origin", "none"].includes(String(req.headers["sec-fetch-site"]))) {
+    throw new HttpError(403, "not from this station's pages");
+  }
+}
+
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "send JSON");
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > MAX_BODY) throw new HttpError(413, "too large");
+    chunks.push(c as Buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HttpError(400, "not JSON");
+  }
 }
 
 function json(res: ServerResponse, body: unknown, status = 200): void {
@@ -193,7 +229,28 @@ export function createStation(lib: Library): Server {
     if (get && path === "/api/breaks") {
       return json(res, lib.breakJob);
     }
+    if (get && path === "/api/episodes") {
+      return json(res, { job: lib.breakJob, episodes: lib.episodeBreaks().map((e) => {
+        const item = lib.item(e.key)!;
+        return { ...e, delivery: delivery(item).mode };
+      }) });
+    }
+    const edit = /^\/api\/episodes\/([a-z0-9]+)\/breaks$/.exec(path);
+    if (edit && (req.method === "PUT" || req.method === "DELETE")) {
+      checkOwnMachine(req);
+      const body = req.method === "PUT" ? await readJson(req) : null;
+      const breaks = body === null ? null : (body as { breaksSec?: unknown }).breaksSec;
+      if (body !== null && !Array.isArray(breaks)) throw new HttpError(400, "send {\"breaksSec\": [...]}");
+      try {
+        return json(res, await lib.setBreaks(edit[1], breaks));
+      } catch (e) {
+        if (e instanceof Error && /no such episode/.test(e.message)) throw new HttpError(404, e.message);
+        if (e instanceof Error && /^breaks:/.test(e.message)) throw new HttpError(400, e.message);
+        throw e;
+      }
+    }
     if (req.method === "POST" && path === "/api/rescan") {
+      checkOwnMachine(req);
       scanning ??= lib.scan().finally(() => { scanning = null; });
       await scanning;
       void lib.detectBreaks();

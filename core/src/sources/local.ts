@@ -112,8 +112,18 @@ export interface ProbeRecord {
   breaksSec?: number[];
   /** When they were found (epoch ms). A changed file loses both, so they're found again. */
   breaksAt?: number;
+  /** The breaks were set by hand in the break editor (detection never replaces them). */
+  breaksEdited?: boolean;
+  /** Versions they replaced, newest first: a change takes effect at the next midnight, so
+   *  the days before it still air the version that was in force when they began. */
+  earlier?: BreaksVersion[];
   /** The file's codecs (a record made before codecs were probed lacks this: probed again). */
   media?: MediaInfo;
+}
+export interface BreaksVersion {
+  breaksSec: number[];
+  breaksAt: number;
+  edited?: boolean;
 }
 export type ProbeCache = Record<string, ProbeRecord>;
 

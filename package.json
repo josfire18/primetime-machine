@@ -13,7 +13,7 @@
     "typecheck": "tsc -p .",
     "guide": "node core/cli.ts",
     "station": "node station/main.ts",
-    "e2e": "python3 ui/test/e2e.py && python3 app/test/app_e2e.py",
+    "e2e": "python3 ui/test/e2e.py && python3 ui/test/editor_e2e.py && python3 app/test/app_e2e.py",
     "app": "node node_modules/electron/install.js && electron app/main.mjs",
     "roku": "bsc",
     "dist": "electron-builder"

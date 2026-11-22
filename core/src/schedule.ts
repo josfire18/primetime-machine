@@ -17,8 +17,10 @@ import { rng, shuffled } from "./rng.ts";
 export const DAY_MS = 86_400_000;
 /** Ads may come from up to this many years either side of a channel's range. */
 export const AD_YEAR_SLACK = 1;
-/** Breaks closer than this to the start or end of a program are ignored. */
-const BREAK_EDGE_SEC = 60;
+/** Breaks closer than this to the start or end of a program are ignored. Detection keeps
+ *  well clear of the edges itself (cold opens, credits); a break set by hand in the editor
+ *  is meant, so this only drops ones that would leave a sliver of show. */
+const BREAK_EDGE_SEC = 10;
 /** Without detected breaks, one break per this much content. */
 const DEFAULT_ACT_SEC = 8 * 60;
 
