@@ -3,7 +3,7 @@
 // clock four times a second, so it stays live through ad breaks, slow files and sleep.
 //
 // Remote:  ▲▼ / PgUp PgDn  channel     0-9  dial a number     OK / G  guide     I  info
-//          M  mute     F  full screen     Esc  close the guide
+//          M  mute     F  full screen     E  commercial break editor     Esc  close the guide
 
 const $ = (id) => document.getElementById(id);
 const tv = $("tv");
@@ -504,6 +504,7 @@ document.addEventListener("keydown", async (e) => {
   else if (k === "Enter" || k === "g" || k === "G") openGuide();
   else if (k === "i" || k === "I" || k === " ") showInfo();
   else if (k === "m" || k === "M") { tv.muted = !tv.muted; osd(tv.muted ? "MUTE" : String(channel()?.number ?? "")); }
+  else if (k === "e" || k === "E") window.open("/editor.html", "ptm-editor");   // the break editor, beside the TV
   else if (k === "f" || k === "F") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   else return;
   e.preventDefault();

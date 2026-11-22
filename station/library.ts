@@ -15,6 +15,10 @@
 // in the probe cache with the file. Breaks found today take effect at the next midnight, so
 // ads never jump around inside a show that is already on the air, and every screen agrees on
 // tomorrow from the start.
+//
+// The break editor (ui/editor.html) sets an episode's breaks by hand, or hands it back to
+// detection. An edit follows the same midnight rule: the record keeps the versions it
+// replaced, so a day that began before the edit still airs what was in force then.
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -23,8 +27,8 @@ import { dirname, join } from "node:path";
 import { type BreakOptions, detectBreaks } from "../core/src/breaks.ts";
 import type { ChannelRule, MediaItem } from "../core/src/model.ts";
 import { hash } from "../core/src/rng.ts";
-import { programsFor } from "../core/src/schedule.ts";
-import { LocalFolder, type ProbeCache } from "../core/src/sources/local.ts";
+import { DAY_MS, programsFor } from "../core/src/schedule.ts";
+import { type BreaksVersion, LocalFolder, type ProbeCache, type ProbeRecord } from "../core/src/sources/local.ts";
 
 export interface Config {
   folders: string[];
@@ -90,6 +94,55 @@ export function defaultChannels(library: readonly MediaItem[]): ChannelRule[] {
 /** A short, stable, path-free key for an item, used in media URLs. */
 export const mediaKey = (item: MediaItem): string => hash(item.id).toString(36);
 
+/** The most breaks an episode can have (a feature film cut for TV had about a dozen). */
+export const MAX_BREAKS = 24;
+
+/** The breaks a record had in force on `day`: its newest version made before that day began. */
+function inForce(rec: ProbeRecord | undefined, day: number): BreaksVersion | undefined {
+  if (!rec) return undefined;
+  if (rec.breaksAt !== undefined && rec.breaksAt <= day) return { breaksSec: rec.breaksSec ?? [], breaksAt: rec.breaksAt };
+  return rec.earlier?.find((v) => v.breaksAt <= day);
+}
+
+/** Older versions worth keeping: everything from the last two days, plus the one before that. */
+function trimEarlier(versions: BreaksVersion[], now: number): BreaksVersion[] {
+  const recent = versions.filter((v) => v.breaksAt > now - 2 * DAY_MS);
+  const older = versions.find((v) => v.breaksAt <= now - 2 * DAY_MS);
+  return [...recent, ...(older ? [older] : [])].slice(0, 12);
+}
+
+/** A list of break points from the editor, checked: ascending seconds inside the episode. */
+export function checkBreaks(value: unknown, durationSec: number): number[] {
+  if (!Array.isArray(value) || value.length > MAX_BREAKS) throw new Error(`breaks: a list of at most ${MAX_BREAKS} times`);
+  const out = value.map((v) => {
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v >= durationSec) {
+      throw new Error("breaks: each is seconds from the start, inside the episode");
+    }
+    return Math.round(v * 100) / 100;
+  }).sort((a, b) => a - b);
+  for (let i = 1; i < out.length; i++) if (out[i] - out[i - 1] < 1) throw new Error("breaks: two are less than a second apart");
+  return out;
+}
+
+/** One episode as the break editor sees it. */
+export interface EpisodeBreaks {
+  key: string;
+  show?: string;
+  season?: number;
+  episode?: number;
+  title: string;
+  year?: number;
+  durationSec: number;
+  /** "pending": not checked yet; "found"/"none": detection's result; "edited": set by hand. */
+  status: "pending" | "found" | "none" | "edited";
+  /** The current breaks (from the next midnight, if they changed today). */
+  breaksSec: number[];
+  /** When they were set (epoch ms). */
+  since?: number;
+  /** What airs today, when that differs from breaksSec. */
+  today?: number[];
+}
+
 export interface BreakJob {
   running: boolean;
   /** Episodes with a break result (including "none found"). */
@@ -106,6 +159,7 @@ export class Library {
   breakOptions: BreakOptions = {};
   private dayViews = new Map<string, MediaItem[]>();
   private detecting: Promise<void> | null = null;
+  private detectAgain = false;
   channels: ChannelRule[] = [];
   private byKey = new Map<string, MediaItem>();
   private cache: ProbeCache = {};
@@ -137,31 +191,25 @@ export class Library {
     await this.saveCache();
   }
 
-  /** When a file's breaks were found, if they have been. */
-  private breaksAt(item: MediaItem): number | undefined {
-    return this.cache[item.locator]?.breaksAt;
-  }
-
   /** A short key that changes when the breaks in force on `day` change (for day caches). */
   breaksKey(day: number): string {
     let n = 0;
-    let latest = 0;
+    let sum = 0;
     for (const m of this.items) {
-      const at = this.breaksAt(m);
-      if (at !== undefined && at <= day) { n++; latest = Math.max(latest, at); }
+      const v = inForce(this.cache[m.locator], day);
+      if (v) { n++; sum = (sum + v.breaksAt) % 1e15; }
     }
-    return `${n}.${latest}`;
+    return `${n}.${sum}`;
   }
 
-  /** The library as it airs on `day`: breaks found after that day began aren't used yet. */
+  /** The library as it airs on `day`: breaks set after that day began aren't used yet. */
   itemsForDay(day: number): MediaItem[] {
     const key = `${this.scannedAt}|${day}|${this.breaksKey(day)}`;
     let view = this.dayViews.get(key);
     if (!view) {
       view = this.items.map((m) => {
-        const at = this.breaksAt(m);
-        const rec = this.cache[m.locator];
-        if (at !== undefined && at <= day && rec?.breaksSec?.length) return { ...m, breaksSec: rec.breaksSec };
+        const v = inForce(this.cache[m.locator], day);
+        if (v?.breaksSec.length) return { ...m, breaksSec: v.breaksSec };
         if (m.breaksSec) {
           const { breaksSec: _drop, ...rest } = m;
           return rest;
@@ -174,9 +222,68 @@ export class Library {
     return view;
   }
 
+  /** Every episode with its breaks, for the editor. */
+  episodeBreaks(now = Date.now()): EpisodeBreaks[] {
+    const today = Math.floor(now / DAY_MS) * DAY_MS;
+    return this.items.filter((m) => m.kind === "episode").map((m) => {
+      const rec = this.cache[m.locator];
+      const breaksSec = rec?.breaksSec ?? [];
+      const status = rec?.breaksAt === undefined ? "pending" : rec.breaksEdited ? "edited" : breaksSec.length ? "found" : "none";
+      const airing = inForce(rec, today)?.breaksSec ?? [];
+      const out: EpisodeBreaks = {
+        key: mediaKey(m), title: m.title, durationSec: m.durationSec, status, breaksSec,
+        ...(m.show !== undefined ? { show: m.show } : {}), ...(m.season !== undefined ? { season: m.season } : {}),
+        ...(m.episode !== undefined ? { episode: m.episode } : {}), ...(m.year !== undefined ? { year: m.year } : {}),
+        ...(rec?.breaksAt !== undefined ? { since: rec.breaksAt } : {}),
+      };
+      if (airing.join() !== breaksSec.join()) out.today = airing;
+      return out;
+    }).sort((a, b) => `${a.show ?? a.title}`.localeCompare(`${b.show ?? b.title}`) ||
+      (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0) || a.title.localeCompare(b.title));
+  }
+
+  /**
+   * Set an episode's breaks by hand, or with `null` hand it back to detection. Takes effect at
+   * the next midnight; today keeps the version it began with.
+   */
+  async setBreaks(key: string, breaks: unknown): Promise<EpisodeBreaks> {
+    const item = this.item(key);
+    const rec = item && this.cache[item.locator];
+    if (!item || item.kind !== "episode" || !rec) throw new Error("no such episode");
+    const list = breaks === null ? null : checkBreaks(breaks, item.durationSec);
+    const now = Date.now();
+    if (rec.breaksAt !== undefined) {
+      const was: BreaksVersion = { breaksSec: rec.breaksSec ?? [], breaksAt: rec.breaksAt, ...(rec.breaksEdited ? { edited: true } : {}) };
+      rec.earlier = trimEarlier([was, ...(rec.earlier ?? [])], now);
+    }
+    delete rec.breaksEdited;
+    if (list === null) {
+      delete rec.breaksSec;
+      delete rec.breaksAt;
+    } else {
+      rec.breaksSec = list;
+      rec.breaksAt = Math.max(now, (rec.earlier?.[0]?.breaksAt ?? 0) + 1);   // versions never share a time
+      rec.breaksEdited = true;
+    }
+    this.dayViews.clear();
+    await this.saveCache();
+    if (list === null) void this.detectBreaks();
+    return this.episodeBreaks(now).find((e) => e.key === key)!;
+  }
+
   /** Find the breaks of every episode not yet checked. Safe to call again: one job at a time. */
   detectBreaks(): Promise<void> {
-    this.detecting ??= this.runBreakJob().finally(() => { this.detecting = null; });
+    if (this.detecting) {
+      this.detectAgain = true;            // an episode handed back mid-job is picked up after it
+      return this.detecting;
+    }
+    this.detecting = this.runBreakJob().finally(() => {
+      this.detecting = null;
+      if (this.detectAgain) {
+        this.detectAgain = false;
+        void this.detectBreaks();
+      }
+    });
     return this.detecting;
   }
 
@@ -187,6 +294,7 @@ export class Library {
     let unsaved = 0;
     for (const m of todo) {
       this.breakJob.current = m.show ? `${m.show}: ${m.title}` : m.title;
+      const was = this.cache[m.locator];
       let found: number[] = [];
       try {
         found = await detectBreaks(m.locator, m.durationSec, this.breakOptions);
@@ -194,9 +302,10 @@ export class Library {
         this.breakJob.failed++;           // unreadable: recorded as "none found", not retried
       }
       const rec = this.cache[m.locator];
-      if (rec) {                          // the file may have changed or gone during detection
+      // the file may have changed or gone during detection, or been edited by hand meanwhile
+      if (rec && rec.breaksAt === undefined && rec.mtimeMs === was.mtimeMs && rec.size === was.size) {
         rec.breaksSec = found;
-        rec.breaksAt = Date.now();
+        rec.breaksAt = Math.max(Date.now(), (rec.earlier?.[0]?.breaksAt ?? 0) + 1);
       }
       this.breakJob.done++;
       if (++unsaved >= 10) {

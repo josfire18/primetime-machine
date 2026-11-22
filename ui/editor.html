@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Break editor · Primetime Machine</title>
+<link rel="stylesheet" href="/editor.css">
+</head>
+<body>
+<header>
+  <h1>Break editor</h1>
+  <span id="job" class="dim"></span>
+  <a href="/" class="back">Back to TV</a>
+</header>
+<div class="layout">
+  <aside>
+    <input id="filter" type="search" placeholder="Find a show or episode" autocomplete="off">
+    <div id="counts" class="chips"></div>
+    <ol id="list"></ol>
+  </aside>
+  <main id="editor" hidden>
+    <div class="title"><b id="ep-title"></b><span id="ep-meta" class="dim"></span></div>
+    <video id="video" preload="auto"></video>
+    <div id="timeline" title="Click to jump there"><div id="played"></div><div id="head"></div></div>
+    <div class="clock"><span id="pos">0:00.0</span> / <span id="dur">0:00</span><span id="loading" class="dim" hidden> loading…</span></div>
+    <div class="row">
+      <button id="play" title="Space">Play</button>
+      <button data-step="-5" title="←">−5s</button>
+      <button data-step="-0.5" title="Shift+←">−½s</button>
+      <button data-step="0.5" title="Shift+→">+½s</button>
+      <button data-step="5" title="→">+5s</button>
+      <span class="gap"></span>
+      <button id="add" class="primary" title="B">Add break here</button>
+    </div>
+    <h2>Breaks <span id="dirty" class="dirty" hidden>unsaved</span></h2>
+    <ol id="breaks"></ol>
+    <p id="none" class="dim" hidden>No breaks: the episode airs in one piece, with its ads at the end.</p>
+    <div class="row">
+      <button id="save" class="primary" disabled title="Ctrl+S">Save</button>
+      <button id="discard" disabled>Discard changes</button>
+      <span class="gap"></span>
+      <button id="redetect" title="Forget the hand-set breaks and find them again">Hand back to detection</button>
+    </div>
+    <p id="note" class="note"></p>
+    <p id="error" class="error" hidden></p>
+    <p class="dim keys">Keys: Space play · ← → 5 s · Shift+← → ½ s · B add · [ ] nudge the selected break · Delete remove it · P preview it · Ctrl+S save</p>
+  </main>
+  <main id="empty" class="dim">Pick an episode.</main>
+</div>
+<script src="/editor.js"></script>
+</body>
+</html>

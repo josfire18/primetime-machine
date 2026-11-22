@@ -87,13 +87,16 @@ def main() -> int:
             print("--- electron output ---\n" + out[-3000:])
 
 
-def station_page_listed(cdp: int) -> bool:
+def targets(cdp: int) -> list[dict]:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{cdp}/json", timeout=2) as r:
-            return any(t.get("type") == "page" and t.get("url", "").startswith("http://127.0.0.1")
-                       for t in json.load(r))
+            return [t for t in json.load(r) if t.get("type") == "page"]
     except OSError:
-        return False
+        return []
+
+
+def station_page_listed(cdp: int) -> bool:
+    return any(t.get("url", "").startswith("http://127.0.0.1") for t in targets(cdp))
 
 
 def drive(cdp: int) -> int:
@@ -175,6 +178,28 @@ def drive(cdp: int) -> int:
         assert r["err"] is None and r["w"] == 320, r
         page.keyboard.press("g")
         page.wait_for_selector("#guide:not([hidden]) .g-cell.sel")
+        page.keyboard.press("Escape")
+        # E opens the break editor in a window of its own; the TV keeps playing. (A CDP
+        # connection doesn't learn of windows made after it attached: look with a fresh one.)
+        page.keyboard.press("e")
+        deadline = time.time() + 20
+        while not any(t.get("url", "").endswith("/editor.html") for t in targets(cdp)):
+            assert time.time() < deadline, "E didn't open the break editor"
+            time.sleep(0.3)
+        second = p.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp}")
+        editor = next(pg for ctx in second.contexts for pg in ctx.pages if pg.url.endswith("/editor.html"))
+        editor.wait_for_selector("#list .ep")
+        assert editor.locator("#list .ep").count() == 4
+        # the station takes changes from the app's own window
+        saved = editor.evaluate("""async () => {
+          const key = document.querySelector('#list .ep').dataset.key;
+          const r = await fetch(`/api/episodes/${key}/breaks`, { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ breaksSec: [20] }) });
+          return [r.status, (await r.json()).status];
+        }""")
+        assert saved == [200, "edited"], saved
+        second.close()
+        assert page.url.rstrip("/").count("/") == 2 and not page.evaluate("document.getElementById('tv').paused")
         assert not errors, errors
         browser.close()
     print("app e2e OK: Electron plays H.264 live on the clock")

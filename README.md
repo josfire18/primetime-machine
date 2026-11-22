@@ -34,6 +34,10 @@ Early. The core works and is tested on real video files:
   from the clock, and media streaming with seeking. Listens on this machine only by default.
 - `ui/`: the TV screen: full-screen player, guide, info bar. Plain HTML/JS, no build step.
   Tested in a real browser against real video (`ui/test/e2e.py`).
+- `ui/editor.html`: the commercial break editor. Every episode with the breaks detection
+  found; play it, add, nudge or remove breaks, or hand it back to detection. Edits air from
+  midnight, so nothing shifts under a show already on. Press E on the TV, or Edit >
+  Commercial breaks in the app (`ui/test/editor_e2e.py`).
 
 - `app/`: the desktop app (Electron). Starts the station inside itself and shows the screen
   full-screen; plays H.264/AAC MP4, which most libraries are. Asks for your folders on
@@ -66,7 +70,7 @@ npm test && npm run e2e                        # unit tests, then browser and ap
 ```
 
 Keys: ▲▼ change channel, number keys dial one, OK (Enter) opens the guide, I shows what's
-on, M mutes, F goes full screen.
+on, M mutes, F goes full screen, E opens the commercial break editor.
 
 **Any file plays.** MP4 (H.264/AAC) and WebM play as they are. Everything else (MKV, AC3 or
 DTS sound, HEVC, MPEG-2, AVI) goes through ffmpeg on the way to the screen: the video is

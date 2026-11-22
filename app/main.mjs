@@ -129,8 +129,33 @@ function buildMenu() {
         { role: "quit" },
       ],
     },
+    {
+      label: "Edit",
+      submenu: [
+        { label: "Commercial breaks…", accelerator: "CmdOrCtrl+E", enabled: Boolean(origin), click: () => openEditor() },
+        { type: "separator" },
+        { role: "undo" }, { role: "redo" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" },
+      ],
+    },
     { label: "View", submenu: [{ role: "togglefullscreen" }, { role: "toggleDevTools" }] },
   ]));
+}
+
+/** The break editor, in a window of its own beside the TV (one at a time). */
+let editor = null;
+function openEditor() {
+  if (editor && !editor.isDestroyed()) return editor.focus();
+  editor = new BrowserWindow({
+    width: 1200, height: 820, backgroundColor: "#070d33", title: "Commercial breaks · Primetime Machine",
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  editor.setMenuBarVisibility(false);
+  editor.webContents.on("will-navigate", (e, url) => {
+    if (!url.startsWith(origin)) { e.preventDefault(); shell.openExternal(url); }
+    else if (!url.startsWith(`${origin}/editor.html`)) { e.preventDefault(); win?.focus(); }   // "Back to TV"
+  });
+  editor.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  void editor.loadURL(`${origin}/editor.html`);
 }
 
 async function main() {
@@ -150,7 +175,11 @@ async function main() {
   win.webContents.on("will-navigate", (e, url) => {
     if (!url.startsWith(origin)) { e.preventDefault(); shell.openExternal(url); }
   });
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(`${origin}/editor.html`)) openEditor();     // E on the TV
+    else shell.openExternal(url);
+    return { action: "deny" };
+  });
   await win.loadURL(origin);
 }
 
