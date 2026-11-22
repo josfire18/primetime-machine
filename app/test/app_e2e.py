@@ -199,7 +199,20 @@ def drive(cdp: int) -> int:
         }""")
         assert saved == [200, "edited"], saved
         second.close()
-        assert page.url.rstrip("/").count("/") == 2 and not page.evaluate("document.getElementById('tv').paused")
+        # C opens the lineup editor the same way, beside the TV and the break editor
+        page.keyboard.press("c")
+        deadline = time.time() + 20
+        while not any(t.get("url", "").endswith("/channels.html") for t in targets(cdp)):
+            assert time.time() < deadline, "C didn't open the lineup editor"
+            time.sleep(0.3)
+        third = p.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp}")
+        lineup = next(pg for ctx in third.contexts for pg in ctx.pages if pg.url.endswith("/channels.html"))
+        lineup.wait_for_selector("#lineup li[data-i]")
+        assert lineup.locator("#lineup li[data-i]").count() == 2
+        third.close()
+        assert page.url.rstrip("/").count("/") == 2, page.url
+        # (between programs the TV shows the station-break card with the picture paused)
+        page.wait_for_function("!document.getElementById('tv').paused", timeout=30000)
         assert not errors, errors
         browser.close()
     print("app e2e OK: Electron plays H.264 live on the clock")

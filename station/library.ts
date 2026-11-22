@@ -27,7 +27,7 @@ import { dirname, join } from "node:path";
 import { type BreakOptions, detectBreaks } from "../core/src/breaks.ts";
 import type { ChannelRule, MediaItem } from "../core/src/model.ts";
 import { hash } from "../core/src/rng.ts";
-import { DAY_MS, programsFor } from "../core/src/schedule.ts";
+import { adsFor, DAY_MS, programsFor } from "../core/src/schedule.ts";
 import { type BreaksVersion, LocalFolder, type ProbeCache, type ProbeRecord } from "../core/src/sources/local.ts";
 
 export interface Config {
@@ -67,6 +67,83 @@ function checkChannel(ch: ChannelRule, where: string): void {
     Number.isInteger(ch.number) && Array.isArray(ch.years) && ch.years.length === 2 &&
     ch.years.every(Number.isInteger) && ch.years[0] <= ch.years[1];
   if (!ok) throw new Error(`${where}: needs id, name, an integer number and years [from, to]`);
+}
+
+const PROGRAM_KINDS = ["episode", "movie"] as const;
+const strList = (v: unknown, what: string): string[] | undefined => {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > 200 || !v.every((x) => typeof x === "string" && x.trim() && x.length <= 120)) {
+    throw new Error(`${what}: a list of names`);
+  }
+  const out = [...new Set(v.map((x: string) => x.trim()))];
+  return out.length ? out : undefined;
+};
+
+/**
+ * A channel as the lineup editor sends it (or a shared channel.json), checked field by field and
+ * reduced to the fields a channel has. Throws "channel: ..." with what's wrong.
+ */
+export function cleanChannel(raw: unknown): ChannelRule {
+  const c = (raw ?? {}) as Record<string, unknown>;
+  const fail = (why: string) => { throw new Error(`channel ${JSON.stringify(c.name ?? c.id ?? "?")}: ${why}`); };
+  if (typeof c.id !== "string" || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(c.id)) fail("id: lowercase letters, digits and dashes");
+  if (typeof c.name !== "string" || !c.name.trim() || c.name.length > 40) fail("name: 1 to 40 characters");
+  if (!Number.isInteger(c.number) || (c.number as number) < 1 || (c.number as number) > 999) fail("number: 1 to 999");
+  const y = c.years as unknown[];
+  if (!Array.isArray(y) || y.length !== 2 || !y.every((v) => Number.isInteger(v) && (v as number) >= 1900 && (v as number) <= 2100) ||
+      (y[0] as number) > (y[1] as number)) fail("years: [from, to], from 1900 to 2100");
+  const rule: ChannelRule = { id: c.id as string, number: c.number as number, name: (c.name as string).trim(),
+                              years: [y[0] as number, y[1] as number] };
+  if (c.kinds !== undefined) {
+    if (!Array.isArray(c.kinds) || !c.kinds.length || !c.kinds.every((k) => (PROGRAM_KINDS as readonly unknown[]).includes(k))) {
+      fail("kinds: episode and/or movie");
+    }
+    const kinds = [...new Set(c.kinds as NonNullable<ChannelRule["kinds"]>)];
+    if (!(kinds.length === 1 && kinds[0] === "episode")) rule.kinds = kinds;
+  }
+  try {
+    const shows = strList(c.shows, "shows");
+    const genres = strList(c.genres, "genres");
+    const networks = strList(c.networks, "networks");
+    if (shows) rule.shows = shows;
+    if (genres) rule.genres = genres;
+    if (networks) rule.networks = networks;
+  } catch (e) {
+    fail((e as Error).message);
+  }
+  if (c.slotMinutes !== undefined) {
+    if (!Number.isInteger(c.slotMinutes) || (c.slotMinutes as number) < 1 || (c.slotMinutes as number) > 240) fail("slotMinutes: 1 to 240");
+    if (c.slotMinutes !== 30) rule.slotMinutes = c.slotMinutes as number;
+  }
+  if (c.seed !== undefined) {
+    if (typeof c.seed !== "string" || c.seed.length > 40) fail("seed: a short text");
+    if (c.seed) rule.seed = c.seed as string;
+  }
+  return rule;
+}
+
+/** A whole lineup, checked: every channel, and no two sharing an id or a number. */
+export function cleanLineup(raw: unknown): ChannelRule[] {
+  if (!Array.isArray(raw) || raw.length > 200) throw new Error("channels: a list of at most 200");
+  const out = raw.map(cleanChannel);
+  const ids = new Set<string>();
+  const numbers = new Set<number>();
+  for (const ch of out) {
+    if (ids.has(ch.id)) throw new Error(`channel ${JSON.stringify(ch.name)}: id ${ch.id} is used twice`);
+    if (numbers.has(ch.number)) throw new Error(`channel ${JSON.stringify(ch.name)}: number ${ch.number} is used twice`);
+    ids.add(ch.id);
+    numbers.add(ch.number);
+  }
+  return out.sort((a, b) => a.number - b.number);
+}
+
+/** What the library holds, for building channels: shows with their years, and the rest. */
+export interface Catalog {
+  years?: [number, number];
+  shows: { name: string; years: [number, number]; episodes: number }[];
+  movies: number;
+  genres: string[];
+  networks: string[];
 }
 
 /** One channel per decade the library covers, and a movie channel if it has movies. */
@@ -161,6 +238,10 @@ export class Library {
   private detecting: Promise<void> | null = null;
   private detectAgain = false;
   channels: ChannelRule[] = [];
+  /** The lineup came from defaultChannels (none configured). */
+  autoChannels = true;
+  /** Bumps when the lineup changes, so screens and caches can tell. */
+  lineupAt = 0;
   private byKey = new Map<string, MediaItem>();
   private cache: ProbeCache = {};
   readonly configPath: string;
@@ -184,11 +265,82 @@ export class Library {
     for (const folder of config.folders) items.push(...await new LocalFolder(folder, `local:${folder}`, this.cache).list());
     this.items = items;
     this.byKey = new Map(items.map((m) => [mediaKey(m), m]));
+    this.autoChannels = !config.channels?.length;
     this.channels = (config.channels?.length ? config.channels : defaultChannels(items))
       .slice().sort((a, b) => a.number - b.number);
     this.scannedAt = Date.now();
+    this.lineupAt = this.scannedAt;
     this.dayViews.clear();
     await this.saveCache();
+  }
+
+  /** The library's shows, years and so on, for the lineup editor. */
+  catalog(): Catalog {
+    const shows = new Map<string, { name: string; years: [number, number]; episodes: number }>();
+    const genres = new Set<string>();
+    const networks = new Set<string>();
+    let lo = Infinity;
+    let hi = -Infinity;
+    let movies = 0;
+    for (const m of this.items) {
+      if (m.kind !== "episode" && m.kind !== "movie") continue;
+      if (m.year !== undefined) { lo = Math.min(lo, m.year); hi = Math.max(hi, m.year); }
+      for (const g of m.genres ?? []) genres.add(g);
+      if (m.network) networks.add(m.network);
+      if (m.kind === "movie") { movies++; continue; }
+      if (m.show === undefined) continue;
+      const s = shows.get(m.show.toLowerCase()) ?? { name: m.show, years: [m.year ?? 0, m.year ?? 0] as [number, number], episodes: 0 };
+      s.episodes++;
+      if (m.year !== undefined) s.years = [s.years[0] ? Math.min(s.years[0], m.year) : m.year, Math.max(s.years[1], m.year)];
+      shows.set(m.show.toLowerCase(), s);
+    }
+    return {
+      ...(lo <= hi ? { years: [lo, hi] as [number, number] } : {}),
+      shows: [...shows.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      movies, genres: [...genres].sort(), networks: [...networks].sort(),
+    };
+  }
+
+  /** What a channel would air: how many programs, from which shows. */
+  preview(rule: ChannelRule): { programs: number; runSec: number; shows: { name: string; episodes: number }[]; movies: number; ads: number } {
+    const programs = programsFor(rule, this.items);
+    const shows = new Map<string, number>();
+    let movies = 0;
+    for (const m of programs) {
+      if (m.kind === "movie") movies++;
+      else if (m.show) shows.set(m.show, (shows.get(m.show) ?? 0) + 1);
+    }
+    const ads = adsFor(rule, this.items).length;
+    return {
+      programs: programs.length, movies, ads,
+      runSec: Math.round(programs.reduce((t, m) => t + m.durationSec, 0)),
+      shows: [...shows].map(([name, episodes]) => ({ name, episodes })).sort((a, b) => b.episodes - a.episodes || a.name.localeCompare(b.name)),
+    };
+  }
+
+  /**
+   * Replace the lineup (`null`: back to one channel per decade) and save it in the config,
+   * keeping everything else there as it was. The new lineup airs at once.
+   */
+  async setChannels(raw: unknown): Promise<ChannelRule[]> {
+    const lineup = raw === null ? null : cleanLineup(raw);
+    if (lineup && !lineup.length) throw new Error("channels: at least one (or go back to automatic)");
+    let config: Record<string, unknown> = {};
+    try {
+      config = JSON.parse(await readFile(this.configPath, "utf8"));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+    if (lineup) config.channels = lineup;
+    else delete config.channels;
+    await mkdir(dirname(this.configPath), { recursive: true });
+    const tmp = `${this.configPath}.tmp`;
+    await writeFile(tmp, JSON.stringify(config, null, 2) + "\n");
+    await rename(tmp, this.configPath);
+    this.autoChannels = !lineup;
+    this.channels = (lineup ?? defaultChannels(this.items)).slice().sort((a, b) => a.number - b.number);
+    this.lineupAt = Math.max(Date.now(), this.lineupAt + 1);
+    return this.channels;
   }
 
   /** A short key that changes when the breaks in force on `day` change (for day caches). */

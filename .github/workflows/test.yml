@@ -23,6 +23,8 @@ jobs:
       - run: python ui/test/e2e.py
       # The break editor: detection, editing and saving, on real files.
       - run: python ui/test/editor_e2e.py
+      # The lineup editor, with the TV picking a saved lineup up by itself.
+      - run: python ui/test/channels_e2e.py
       # The desktop app: Electron plays H.264 from the in-process station.
       - run: python app/test/app_e2e.py
       # The packaged app (what the installers ship) plays too.
